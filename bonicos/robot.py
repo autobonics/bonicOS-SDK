@@ -1,0 +1,386 @@
+"""``BonicBot`` — the transport-agnostic student-facing facade (API.md).
+
+Never mentions WebSocket, WebRTC, or SharedArrayBuffer directly (that's the
+whole point of the :class:`~bonicos.transports.base.Transport` seam). The
+constructor is identical across environments (ARCHITECTURE.md §5); which
+transport gets built is decided here, once, from where the interpreter is
+running.
+"""
+
+from __future__ import annotations
+
+import os
+import sys
+from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
+
+from .controllers import (
+    ArmController,
+    CameraController,
+    HeadController,
+    MotionController,
+    NavigationController,
+    PreciseMotionController,
+    SensorsController,
+    SystemController,
+)
+from .enums import HeadMode
+from .exceptions import ConnectionError as BonicConnectionError
+from .transports.base import Transport
+
+
+def _running_in_pyodide() -> bool:
+    # sys.platform is "emscripten" under Pyodide; fall back to a module
+    # check in case an older Pyodide build doesn't set it.
+    return sys.platform == "emscripten" or "pyodide" in sys.modules
+
+
+class BonicBot:
+    """One SDK, every BonicBot. See ``API.md`` for the full method reference."""
+
+    def __init__(
+        self,
+        host: Optional[str] = None,
+        *,
+        robot_id: Optional[str] = None,
+        token: Optional[str] = None,
+        timeout: float = 10.0,
+    ) -> None:
+        self._transport: Transport
+        if _running_in_pyodide():
+            from .transports.webrtc import WebRTCTransport
+
+            self._transport = WebRTCTransport()
+        else:
+            from .transports.websocket import WebSocketTransport
+
+            if host is None:
+                from .discovery import find_robot
+
+                host = find_robot(robot_id, timeout)
+                if host is None:
+                    raise BonicConnectionError(
+                        "no host given and mDNS discovery found no robot"
+                        + (f" with robot_id={robot_id!r}" if robot_id else "")
+                    )
+            if robot_id is None:
+                raise BonicConnectionError(
+                    "robot_id is required natively unless discovery supplies it"
+                )
+            resolved_token = token if token is not None else os.environ.get("BONICOS_TOKEN")
+            self._transport = WebSocketTransport(
+                host, robot_id=robot_id, token=resolved_token
+            )
+
+        auth_result = self._transport.connect(timeout)
+        self.robot_id: str = auth_result.get("robot_id", robot_id or "")
+        self.series: str = auth_result.get("series", "")
+        self.features: Dict[str, bool] = dict(auth_result.get("features", {}) or {})
+        #: Camera names this robot can stream (from the handshake). Frames come
+        #: over WebRTC, which the transport sets up transparently (self.camera).
+        self.cameras: List[str] = list(auth_result.get("cameras", []) or [])
+        self._connected = True
+
+        self.motion = MotionController(self)
+        self.nav = NavigationController(self)
+        self.arm = ArmController(self)
+        self.head = HeadController(self)
+        self.sensors = SensorsController(self)
+        self.system = SystemController(self)
+        self.camera = CameraController(self)
+        self._precise = PreciseMotionController(self)
+
+    # --- lifecycle (API.md §1) --------------------------------------------
+
+    def is_connected(self) -> bool:
+        return self._connected
+
+    def close(self) -> None:
+        if not self._connected:
+            return
+        try:
+            self.motion.stop()
+        finally:
+            self._transport.close()
+            self._connected = False
+
+    def __enter__(self) -> "BonicBot":
+        return self
+
+    def __exit__(self, exc_type: object, exc_value: object, traceback: object) -> None:
+        self.close()
+
+    # --- camera (API.md §9) -------------------------------------------------
+
+    def list_cameras(self) -> List[str]:
+        return self.camera.list()
+
+    def get_camera_frame(self, camera: Optional[str] = None):
+        """Latest camera frame (BGR ndarray) or None. Video is brought up over
+        WebRTC transparently on first use — see :class:`CameraController`."""
+        return self.camera.get_frame(camera)
+
+    # --- motion (API.md §2) -------------------------------------------------
+
+    def drive(self, linear_x: float = 0.0, angular_z: float = 0.0) -> None:
+        self.motion.drive(linear_x, angular_z)
+
+    def move_forward(self, speed: float = 0.3, duration: Optional[float] = None) -> None:
+        self.motion.move_forward(speed, duration)
+
+    def move_backward(self, speed: float = 0.3, duration: Optional[float] = None) -> None:
+        self.motion.move_backward(speed, duration)
+
+    def turn_left(self, speed: float = 0.5, duration: Optional[float] = None) -> None:
+        self.motion.turn_left(speed, duration)
+
+    def turn_right(self, speed: float = 0.5, duration: Optional[float] = None) -> None:
+        self.motion.turn_right(speed, duration)
+
+    def stop(self) -> None:
+        self.motion.stop()
+
+    def is_moving(self) -> bool:
+        return self.motion.is_moving()
+
+    # --- precise motion (API.md §3) -----------------------------------------
+
+    def drive_distance(self, meters: float, speed: float = 0.3, timeout: float = 30.0) -> bool:
+        return self._precise.drive_distance(meters, speed, timeout)
+
+    def rotate_angle(self, degrees: float, speed: float = 45.0, timeout: float = 30.0) -> bool:
+        return self._precise.rotate_angle(degrees, speed, timeout)
+
+    def drive_and_rotate(
+        self,
+        meters: float,
+        degrees: float,
+        speed: float = 0.3,
+        turn_speed: float = 45.0,
+        timeout: float = 30.0,
+    ) -> bool:
+        return self._precise.drive_and_rotate(meters, degrees, speed, turn_speed, timeout)
+
+    def draw_square(self, side_m: float, speed: float = 0.3, turn_speed: float = 45.0) -> bool:
+        return self._precise.draw_square(side_m, speed, turn_speed)
+
+    def enqueue(self, cmd_list: Iterable[Tuple[str, float]]) -> None:
+        self._precise.enqueue(cmd_list)
+
+    def run_queue(self, block: bool = True) -> bool:
+        return self._precise.run_queue(block)
+
+    def clear_queue(self) -> None:
+        self._precise.clear_queue()
+
+    # --- navigation, mapping & locations (API.md §4) ------------------------
+
+    def go_to(
+        self, x: float, y: float, theta: float = 0.0, wait: bool = True, timeout: float = 60.0
+    ) -> bool:
+        return self.nav.go_to(x, y, theta, wait, timeout)
+
+    def navigate_waypoints(
+        self, points: Sequence[Tuple[float, ...]], wait: bool = True
+    ) -> bool:
+        return self.nav.navigate_waypoints(points, wait)
+
+    def cancel_goal(self) -> bool:
+        return self.nav.cancel_goal()
+
+    def wait_for_goal(self, timeout: float = 30.0) -> bool:
+        return self.nav.wait_for_goal(timeout)
+
+    def get_nav_status(self) -> str:
+        return self.nav.get_nav_status()
+
+    def get_distance_to_goal(self) -> float:
+        return self.nav.get_distance_to_goal()
+
+    def set_initial_pose(self, x: float, y: float, theta: float = 0.0) -> bool:
+        return self.nav.set_initial_pose(x, y, theta)
+
+    def start_navigation(self) -> bool:
+        return self.nav.start_navigation()
+
+    def stop_navigation(self) -> bool:
+        return self.nav.stop_navigation()
+
+    def enter_mapping_mode(self, timeout: float = 30.0) -> bool:
+        return self.nav.enter_mapping_mode(timeout)
+
+    def enter_navigation_mode(self, name: str, timeout: float = 30.0) -> bool:
+        return self.nav.enter_navigation_mode(name, timeout)
+
+    def stop_nav_mode(self, timeout: float = 15.0) -> bool:
+        return self.nav.stop_nav_mode(timeout)
+
+    def get_nav_mode(self) -> Dict[str, Any]:
+        return self.nav.get_nav_mode()
+
+    def start_mapping(self) -> bool:
+        return self.nav.start_mapping()
+
+    def stop_mapping(self) -> bool:
+        return self.nav.stop_mapping()
+
+    def save_map(self, name: str = "map") -> bool:
+        return self.nav.save_map(name)
+
+    def load_map(self, name: str) -> bool:
+        return self.nav.load_map(name)
+
+    def delete_map(self, name: str) -> bool:
+        return self.nav.delete_map(name)
+
+    def list_maps(self) -> List[str]:
+        return self.nav.list_maps()
+
+    def get_map(self) -> Optional[Dict[str, Any]]:
+        return self.nav.get_map()
+
+    def save_location(self, name: str) -> bool:
+        return self.nav.save_location(name)
+
+    def goto_location(self, name: str, wait: bool = True) -> bool:
+        return self.nav.goto_location(name, wait)
+
+    def list_locations(self) -> List[str]:
+        return self.nav.list_locations()
+
+    def delete_location(self, name: str) -> bool:
+        return self.nav.delete_location(name)
+
+    def delete_all_locations(self) -> bool:
+        return self.nav.delete_all_locations()
+
+    # --- arms, grippers & neck (API.md §5) ----------------------------------
+
+    def set_servos(self, angles: Dict[str, float], duration: float = 1.0) -> bool:
+        return self.arm.set_servos(angles, duration)
+
+    def move_left_arm(self, shoulder: float, elbow: float, wait: bool = True) -> bool:
+        return self.arm.move_left_arm(shoulder, elbow, wait)
+
+    def move_right_arm(self, shoulder: float, elbow: float, wait: bool = True) -> bool:
+        return self.arm.move_right_arm(shoulder, elbow, wait)
+
+    def set_grippers(self, left: float, right: float) -> bool:
+        return self.arm.set_grippers(left, right)
+
+    def open_grippers(self) -> bool:
+        return self.arm.open_grippers()
+
+    def close_grippers(self) -> bool:
+        return self.arm.close_grippers()
+
+    def set_neck(self, yaw: float) -> bool:
+        return self.arm.set_neck(yaw)
+
+    def look_left(self) -> bool:
+        return self.arm.look_left()
+
+    def look_right(self) -> bool:
+        return self.arm.look_right()
+
+    def look_center(self) -> bool:
+        return self.arm.look_center()
+
+    def reset_servos(self) -> bool:
+        return self.arm.reset_servos()
+
+    def set_single_servo(self, joint: str, angle: float) -> bool:
+        return self.arm.set_single_servo(joint, angle)
+
+    def get_servo_angles(self) -> Dict[str, float]:
+        return self.arm.get_servo_angles()
+
+    # --- head expression & display (API.md §6) ------------------------------
+
+    def set_expression(self, mode: Union[HeadMode, str]) -> bool:
+        return self.head.set_expression(mode)
+
+    def look(
+        self,
+        pan: Optional[float] = None,
+        tilt: Optional[float] = None,
+        speed: Optional[float] = None,
+    ) -> bool:
+        return self.head.look(pan, tilt, speed)
+
+    def set_display_text(self, text: str) -> bool:
+        return self.head.set_display_text(text)
+
+    def set_display_color(self, r: int, g: int, b: int) -> bool:
+        return self.head.set_display_color(r, g, b)
+
+    def set_display_animation(self, mode: str) -> bool:
+        return self.head.set_display_animation(mode)
+
+    def play_display(self) -> bool:
+        return self.head.play_display()
+
+    def pause_display(self) -> bool:
+        return self.head.pause_display()
+
+    def clear_display(self) -> bool:
+        return self.head.clear_display()
+
+    def set_display_brightness(self, value: float) -> bool:
+        return self.head.set_display_brightness(value)
+
+    # --- speech (API.md §7) --------------------------------------------------
+
+    def speak(self, text: str, voice: Optional[str] = None) -> bool:
+        return self.system.speak(text, voice)
+
+    # --- sensors & telemetry (API.md §8) ------------------------------------
+
+    def get_position(self) -> Dict[str, float]:
+        return self.sensors.get_position()
+
+    def get_x(self) -> float:
+        return self.sensors.get_x()
+
+    def get_y(self) -> float:
+        return self.sensors.get_y()
+
+    def get_heading(self) -> float:
+        return self.sensors.get_heading()
+
+    def get_battery(self) -> float:
+        return self.sensors.get_battery()
+
+    def get_imu(self) -> Dict[str, float]:
+        return self.sensors.get_imu()
+
+    def get_distance_traveled(self, start: Optional[Any] = None) -> float:
+        return self.sensors.get_distance_traveled(start)
+
+    def wait_for_update(self, timeout: float = 1.0) -> bool:
+        return self.sensors.wait_for_update(timeout)
+
+    def wait_for_data(self, timeout: float = 5.0) -> bool:
+        return self.sensors.wait_for_data(timeout)
+
+    def subscribe(self, events: Iterable[str]) -> bool:
+        return self.sensors.subscribe(events)
+
+    # --- system (API.md §10) -------------------------------------------------
+
+    def health(self) -> dict:
+        return self.system.health()
+
+    def restart_base_session(self, timeout: float = 120.0) -> bool:
+        return self.system.restart_base_session(timeout)
+
+    def get_session_status(self) -> Dict[str, Any]:
+        return self.system.get_session_status()
+
+    def reconfig_wifi(self, ssid: str, password: str) -> bool:
+        return self.system.reconfig_wifi(ssid, password)
+
+    def trigger_update(self) -> bool:
+        return self.system.trigger_update()
+
+    def ask_llm(self, prompt: str, model: Optional[str] = None) -> str:
+        return self.system.ask_llm(prompt, model)

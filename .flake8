@@ -1,0 +1,7 @@
+[flake8]
+max-line-length = 88
+# black's formatting intentionally conflicts with these two pycodestyle
+# rules (slice whitespace, line-break-before-binary-operator) — standard
+# ignore list for repos using black + flake8 together (matches
+# [tool.black] line-length in pyproject.toml).
+extend-ignore = E203, W503

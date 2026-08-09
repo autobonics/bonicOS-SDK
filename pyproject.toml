@@ -1,0 +1,109 @@
+[build-system]
+requires = ["setuptools>=45", "wheel", "setuptools_scm[toml]>=6.2"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "bonicos"
+description = "One Python SDK for every BonicBot — transport-agnostic, replaces bonicbot (BLE) and bonicbot-bridge (ROS)"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "Autobonics Team", email = "admin@autobonics.com"}
+]
+maintainers = [
+    {name = "Autobonics Team", email = "admin@autobonics.com"}
+]
+keywords = [
+    "robot", "robotics", "servo", "control", "websocket", "webrtc",
+    "humanoid", "bonicbot", "bonicos", "hardware", "automation", "education"
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Education",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Human Machine Interfaces",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: System :: Hardware :: Hardware Drivers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Operating System :: OS Independent",
+]
+requires-python = ">=3.11"
+dependencies = []
+dynamic = ["version"]
+
+[project.optional-dependencies]
+# Absent in Pyodide — websockets is lazy-imported inside
+# transports/websocket.py's connect() so a Pyodide install never needs it
+# (ARCHITECTURE.md §1, §8).
+native = [
+    "websockets>=12.0",
+]
+# mDNS autodiscovery (discovery.py) — optional, native only.
+discovery = [
+    "zeroconf>=0.132",
+]
+# Camera video on the native SDK. Video is WebRTC-only, so receiving+decoding
+# it needs aiortc (brings av) + numpy; lazy-imported in transports/_camera_link.py
+# so a driving-only install never pays for them. Absent in Pyodide (the host
+# decodes video there). Install with `pip install bonicos[camera]`.
+camera = [
+    "aiortc>=1.6",
+    "numpy>=1.21",
+]
+dev = [
+    "pytest>=7.0",
+    "pytest-cov",
+    "black",
+    "flake8",
+    "mypy",
+    # Needed to exercise webrtc.py's camera-frame decode path in tests.
+    # Upper-bounded (unlike the [camera] extra's numpy>=1.21) because numpy
+    # >=2.1's bundled stubs use `type` statement syntax requiring Python
+    # 3.12+, which crashes mypy outright under this project's
+    # python_version = "3.11" target — a dev-tooling constraint, not a real
+    # runtime incompatibility, so it doesn't belong on the [camera] extra.
+    "numpy>=1.21,<2.1",
+]
+
+[project.urls]
+Homepage = "https://github.com/Autobonics/bonicOS-SDK"
+Documentation = "https://github.com/Autobonics/bonicOS-SDK/blob/main/API.md"
+Repository = "https://github.com/Autobonics/bonicOS-SDK.git"
+"Bug Tracker" = "https://github.com/Autobonics/bonicOS-SDK/issues"
+
+[tool.setuptools]
+packages = ["bonicos", "bonicos.controllers", "bonicos.transports"]
+
+[tool.setuptools.package-data]
+bonicos = ["py.typed"]
+
+[tool.setuptools.dynamic]
+version = {attr = "bonicos.__version__"}
+
+[tool.black]
+line-length = 88
+target-version = ['py311']
+include = '\.pyi?$'
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+
+# js / pyodide.ffi only exist inside a Pyodide runtime; zeroconf is an
+# optional native extra. Neither ships (or needs) type stubs here.
+[[tool.mypy.overrides]]
+module = ["js", "zeroconf"]
+ignore_missing_imports = true
