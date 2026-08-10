@@ -83,7 +83,17 @@ class SimTransport(MockTransport):
 
     def __init__(self) -> None:
         super().__init__()
-        self._auth_result = {"robot_id": "SIM_001", "series": "SIM", "features": {}}
+        self._auth_result = {
+            "robot_id": "SIM_001",
+            "series": "SIM",
+            # True for every feature this transport actually gates on
+            # (ControllerBase._require_feature call sites) — an empty dict
+            # would make direct `robot.features["navigation"]`-style checks
+            # (API.md §12's own worked example does exactly this) raise
+            # KeyError against the sim even though the real robot always
+            # reports these keys.
+            "features": {"navigation": True, "mapping": True, "session_control": True},
+        }
 
         self._last_tick = time.monotonic()
 

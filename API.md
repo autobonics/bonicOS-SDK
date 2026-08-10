@@ -61,6 +61,12 @@ calls ack and do nothing (no Nav2/SLAM is simulated), the same as their
 every method on this page works identically against `BonicBot.simulated()`
 and against a real robot.
 
+> One consequence of "no Nav2 simulated" worth knowing: a goal never
+> completes, so `go_to()`/`goto_location()`/`navigate_waypoints()` (`wait=True`
+> by default) block for their full `timeout` — 60s by default — before giving
+> up, instead of returning quickly. Pass a short `timeout=` or `wait=False`
+> when calling these against `BonicBot.simulated()`.
+
 Supports the context-manager form, which guarantees a `stop` on exit
 (recommended for every run — matches the platform "stop in a `finally`" rule):
 

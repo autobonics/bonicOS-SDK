@@ -50,11 +50,9 @@ def main() -> None:
         robot.look_center()
         robot.set_neck(yaw=15)
 
-        # Longer duration + explicit timeout via the grouped controller —
-        # the flat robot.move_left_arm() only exposes `wait`, not
-        # duration/timeout; use robot.arm.* for those.
-        ok = robot.arm.move_left_arm(shoulder=30, elbow=-10, duration=2.0, timeout=8.0)
-        print(f"robot.arm.move_left_arm(duration=2.0, timeout=8.0) -> {ok}")
+        # Longer duration + an explicit convergence timeout.
+        ok = robot.move_left_arm(shoulder=30, elbow=-10, duration=2.0, timeout=8.0)
+        print(f"move_left_arm(duration=2.0, timeout=8.0) -> {ok}")
 
         # Read back current joint positions (registry camelCase keys, the
         # same names you command with).

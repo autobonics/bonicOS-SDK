@@ -13,12 +13,12 @@ from bonicos import BonicBot
 
 with BonicBot("192.168.1.50", robot_id="M1_001") as robot:
     robot.move_forward(speed=0.3, duration=2)
-    robot.move_left_arm(shoulder_pitch=45, elbow=-30)
+    robot.move_left_arm(shoulder=45, elbow=-30)
     print(robot.get_battery(), "V")
 # motors stopped and the connection closed, even on an exception
 ```
 
-Requires Python 3.11+. Pure Python — the same wheel runs on a laptop, a
+Requires Python 3.10+. Pure Python — the same wheel runs on a laptop, a
 Raspberry Pi, or a Jetson.
 
 ---
