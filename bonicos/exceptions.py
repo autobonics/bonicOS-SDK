@@ -33,14 +33,19 @@ class RobotDisconnected(RobotError):
 
 
 class CameraUnavailable(RobotError):
-    """Camera frames were requested on a transport that can't carry video.
+    """Camera frames were requested but no video path could be established.
 
-    Camera streaming is delivered as WebRTC media tracks, so it's only
-    available when the SDK is connected over WebRTC (the in-browser runtime).
-    Over the native WebSocket connection there is no video path — sensor
-    telemetry (pose, IMU, joint states, …) still works, but camera does not.
+    Video is delivered as WebRTC media tracks, which the SDK brings up
+    transparently over the existing connection the first time a frame is
+    asked for (``transports/_camera_link.py``) — the caller never sets up a
+    peer. So this is raised for a concrete reason, carried in ``detail``:
+    the ``[camera]`` extra isn't installed (``pip install bonicos[camera]``),
+    the named camera doesn't exist on this robot, the peer failed to
+    negotiate, or the transport has no video path at all (``mock``).
+
+    Driving, navigation, and sensor telemetry are unaffected either way.
     """
 
     def __init__(self, detail: str = "") -> None:
-        msg = "camera streaming is only available over a WebRTC connection"
+        msg = "camera video is unavailable"
         super().__init__(f"{msg}: {detail}" if detail else msg)

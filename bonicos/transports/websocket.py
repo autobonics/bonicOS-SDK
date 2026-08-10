@@ -1,15 +1,21 @@
-"""Native transport — plain Python, background receive thread.
+"""The transport — plain Python, background receive thread.
 
-Per ``bonic-architecture.md`` §11 ("Native SDK — Do NOT Port the SAB
-Pattern"): plain Python has real threads, so the browser's seqlock/SAB
-machinery is unnecessary here. This collapses to a background thread that
-iterates the socket and rebinds the latest value per event under the GIL,
-plus a couple of ``threading.Event``s to let synchronous callers block
-without spinning.
+This is the only way the SDK reaches a robot, whether it runs on a
+developer's laptop, inside the on-robot runner (``host="127.0.0.1"``), or
+anywhere else on the robot's LAN. Video is the one exception and it is
+invisible: :meth:`WebSocketTransport.start_camera` negotiates a WebRTC peer
+behind the scenes (``_camera_link.py``), because media tracks are the only
+way video leaves the robot.
 
-``websockets`` is a native-only optional dependency (absent in Pyodide) and
-is therefore imported lazily, inside :meth:`WebSocketTransport.connect`
-only — never at module import time (ARCHITECTURE.md §1, hard requirement).
+A background thread iterates the socket and rebinds the latest value per
+event under the GIL, plus a couple of ``threading.Event``s to let
+synchronous callers block without spinning — which is what keeps the public
+API blocking and ``async``-free.
+
+``websockets`` is imported lazily, inside :meth:`WebSocketTransport.connect`
+only — never at module import time. It is a base dependency, so it is
+always installed; the lazy import is about keeping ``import bonicos``
+cheap, not about it being absent.
 """
 
 from __future__ import annotations
@@ -23,6 +29,7 @@ from typing import Any, Dict, Optional
 from .. import protocol
 from ..exceptions import ConnectionError as BonicConnectionError
 from ..exceptions import RobotDisconnected
+from . import base
 
 
 class WebSocketTransport:
@@ -73,7 +80,7 @@ class WebSocketTransport:
         self._closed_code: Optional[int] = None
         self._disconnected = threading.Event()
 
-        self._camera: Any = None   # NativeCameraLink, created on first use
+        self._camera: Any = None  # NativeCameraLink, created on first use
 
     # --- Transport protocol ------------------------------------------------
 
@@ -188,6 +195,7 @@ class WebSocketTransport:
         """
         if self._camera is None:
             from ._camera_link import NativeCameraLink
+
             self._camera = NativeCameraLink(self._host, self._port)
         self._camera.start(cameras)
 
@@ -196,7 +204,7 @@ class WebSocketTransport:
             self._camera.stop()
             self._camera = None
 
-    def read_frame(self, camera: Optional[str] = None):
+    def read_frame(self, camera: Optional[str] = None) -> Optional[base.Frame]:
         if self._camera is None:
             return None
         return self._camera.read_frame(camera)
@@ -205,12 +213,12 @@ class WebSocketTransport:
         """Every buffered message of ``event_type`` since the last drain.
 
         Not part of the formal :class:`~bonicos.transports.base.Transport`
-        protocol (ARCHITECTURE.md §2 lists no such method) — an extra a
+        protocol (:mod:`bonicos.transports.base` lists no such method) — an extra a
         controller can reach for when it needs every message of a
         fast-moving ``ASYNC_EVENTS`` type rather than just the last-value
         snapshot ``read_telemetry()`` gives (e.g. ``system.ask_llm``'s
         ``llm_token`` chunks). Mirrors the ``self._events.append(msg)``
-        branch in ARCHITECTURE.md §3.1's reference ``_rx_loop``.
+        branch in this module's ``_rx_loop``.
         """
         with self._event_log_lock:
             events = self._event_log.get(event_type, [])
@@ -224,7 +232,10 @@ class WebSocketTransport:
                 self._ws.close()
             except Exception:  # noqa: BLE001 - best-effort on the way out
                 pass
-        if self._rx_thread is not None and self._rx_thread is not threading.current_thread():
+        if (
+            self._rx_thread is not None
+            and self._rx_thread is not threading.current_thread()
+        ):
             self._rx_thread.join(timeout=2.0)
         self._ws = None
 

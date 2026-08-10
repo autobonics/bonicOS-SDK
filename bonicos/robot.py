@@ -1,16 +1,40 @@
-"""``BonicBot`` — the transport-agnostic student-facing facade (API.md).
+"""``BonicBot`` — the transport-agnostic user-facing facade (API.md).
 
-Never mentions WebSocket, WebRTC, or SharedArrayBuffer directly (that's the
-whole point of the :class:`~bonicos.transports.base.Transport` seam). The
-constructor is identical across environments (ARCHITECTURE.md §5); which
-transport gets built is decided here, once, from where the interpreter is
-running.
+The class body never mentions a transport (that's the whole point of the
+:class:`~bonicos.transports.base.Transport` seam) — it builds one here, in
+the constructor, and talks to the interface everywhere else. Tests swap in
+``MockTransport`` through that same seam.
+
+**There is exactly one transport to a real robot: the WebSocket lane**
+(``ws://<host>:8080/ws``), on the developer's laptop and inside the
+on-robot runner alike. Video is the sole exception, and it is invisible: a
+WebRTC peer is negotiated behind the scenes the first time a frame is asked
+for (``transports/_camera_link.py``), because media tracks are the only way
+video leaves the robot. The caller never sets one up and never picks a
+transport.
+
+**Where the connection details come from — resolution order.** The goal is
+that ``BonicBot()``, written exactly like that, is a working program in
+every environment we ship, so the same file runs unchanged in a browser
+simulator, in the on-robot runner, and on a laptop:
+
+1. a transport registered by the host via :func:`use_transport` — the
+   browser/Pyodide path, where there is no socket to open and the host
+   supplies a simulator;
+2. the ``host``/``robot_id`` arguments, if given — the laptop path;
+3. ``$BONICOS_HOST`` / ``$BONICOS_ROBOT_ID`` — what the on-robot runner
+   sets, so user code never hardcodes ``127.0.0.1``;
+4. mDNS autodiscovery (optional ``discovery`` extra).
+
+This replaced an earlier ``sys.platform == "emscripten"`` check. Injection
+is strictly better: it also covers the runner (step 3), and it keeps the
+environment's knowledge in the environment instead of teaching the SDK to
+recognise every place it might run.
 """
 
 from __future__ import annotations
 
 import os
-import sys
 from typing import Any, Dict, Iterable, List, Optional, Sequence, Tuple, Union
 
 from .controllers import (
@@ -25,13 +49,33 @@ from .controllers import (
 )
 from .enums import HeadMode
 from .exceptions import ConnectionError as BonicConnectionError
-from .transports.base import Transport
+from .transports.base import Frame, Transport
+
+#: Transport registered by a host environment via :func:`use_transport`.
+#: Module-level and persistent for the life of the interpreter: a browser
+#: worker sets it once at startup, and every ``BonicBot()`` the user's code
+#: constructs afterwards adopts it (one simulated robot per worker, which is
+#: what a simulator should mean).
+_injected_transport: Optional[Transport] = None
 
 
-def _running_in_pyodide() -> bool:
-    # sys.platform is "emscripten" under Pyodide; fall back to a module
-    # check in case an older Pyodide build doesn't set it.
-    return sys.platform == "emscripten" or "pyodide" in sys.modules
+def use_transport(transport: Optional[Transport]) -> None:
+    """Register a pre-built transport for :class:`BonicBot` to adopt.
+
+    For **host environments**, not for user code. The browser runtime calls
+    this with a simulator transport before running the user's program, so
+    that a plain ``BonicBot()`` — with no host, no robot id, and no socket
+    available — connects to the simulation instead of failing. Tests use it
+    to inject :class:`~bonicos.transports.mock.MockTransport`.
+
+    ``BonicBot()`` still calls ``connect()`` on whatever is registered, so a
+    transport passed here must be unconnected and must return an
+    ``auth_result``-shaped dict, exactly like the real one.
+
+    Pass ``None`` to clear the registration.
+    """
+    global _injected_transport
+    _injected_transport = transport
 
 
 class BonicBot:
@@ -46,12 +90,17 @@ class BonicBot:
         timeout: float = 10.0,
     ) -> None:
         self._transport: Transport
-        if _running_in_pyodide():
-            from .transports.webrtc import WebRTCTransport
-
-            self._transport = WebRTCTransport()
+        if _injected_transport is not None:
+            # Host-supplied (browser simulator, tests). Nothing to resolve —
+            # the environment already decided what this robot is.
+            self._transport = _injected_transport
         else:
             from .transports.websocket import WebSocketTransport
+
+            if host is None:
+                host = os.environ.get("BONICOS_HOST") or None
+            if robot_id is None:
+                robot_id = os.environ.get("BONICOS_ROBOT_ID") or None
 
             if host is None:
                 from .discovery import find_robot
@@ -59,14 +108,19 @@ class BonicBot:
                 host = find_robot(robot_id, timeout)
                 if host is None:
                     raise BonicConnectionError(
-                        "no host given and mDNS discovery found no robot"
+                        "no robot address given and mDNS discovery found none"
                         + (f" with robot_id={robot_id!r}" if robot_id else "")
+                        + " — pass one explicitly, e.g. "
+                        'BonicBot("192.168.1.50", robot_id="M1_001")'
                     )
             if robot_id is None:
                 raise BonicConnectionError(
-                    "robot_id is required natively unless discovery supplies it"
+                    "robot_id is required — pass robot_id=..., set "
+                    "$BONICOS_ROBOT_ID, or let mDNS discovery supply it"
                 )
-            resolved_token = token if token is not None else os.environ.get("BONICOS_TOKEN")
+            resolved_token = (
+                token if token is not None else os.environ.get("BONICOS_TOKEN")
+            )
             self._transport = WebSocketTransport(
                 host, robot_id=robot_id, token=resolved_token
             )
@@ -88,6 +142,38 @@ class BonicBot:
         self.system = SystemController(self)
         self.camera = CameraController(self)
         self._precise = PreciseMotionController(self)
+
+    @classmethod
+    def simulated(cls) -> "BonicBot":
+        """A fake robot in one line, for trying the SDK with no hardware.
+
+        Shorthand for the ``use_transport``/``BonicBot()`` dance below —
+        registers a fresh :class:`~bonicos.transports.sim.SimTransport` and
+        connects to it immediately:
+
+        .. code-block:: python
+
+            import bonicos
+            from bonicos.transports.sim import SimTransport
+
+            bonicos.use_transport(SimTransport())
+            robot = bonicos.BonicBot()
+
+        Everything past this call is completely normal ``BonicBot`` code —
+        driving, arms, telemetry — there is no simulator-specific API to
+        learn (``robot.py`` cannot tell this transport from a real one).
+        No Nav2/SLAM is simulated; navigation and mapping calls ack and do
+        nothing, the same as their stub counterparts on real firmware.
+
+        The registration is sticky for the interpreter's life, like
+        :func:`use_transport` generally — a later bare ``BonicBot()`` adopts
+        the same fake robot rather than looking for a real one, until you
+        clear it with ``bonicos.use_transport(None)``.
+        """
+        from .transports.sim import SimTransport
+
+        use_transport(SimTransport())
+        return cls()
 
     # --- lifecycle (API.md §1) --------------------------------------------
 
@@ -114,7 +200,7 @@ class BonicBot:
     def list_cameras(self) -> List[str]:
         return self.camera.list()
 
-    def get_camera_frame(self, camera: Optional[str] = None):
+    def get_camera_frame(self, camera: Optional[str] = None) -> Optional[Frame]:
         """Latest camera frame (BGR ndarray) or None. Video is brought up over
         WebRTC transparently on first use — see :class:`CameraController`."""
         return self.camera.get_frame(camera)
@@ -124,10 +210,14 @@ class BonicBot:
     def drive(self, linear_x: float = 0.0, angular_z: float = 0.0) -> None:
         self.motion.drive(linear_x, angular_z)
 
-    def move_forward(self, speed: float = 0.3, duration: Optional[float] = None) -> None:
+    def move_forward(
+        self, speed: float = 0.3, duration: Optional[float] = None
+    ) -> None:
         self.motion.move_forward(speed, duration)
 
-    def move_backward(self, speed: float = 0.3, duration: Optional[float] = None) -> None:
+    def move_backward(
+        self, speed: float = 0.3, duration: Optional[float] = None
+    ) -> None:
         self.motion.move_backward(speed, duration)
 
     def turn_left(self, speed: float = 0.5, duration: Optional[float] = None) -> None:
@@ -144,10 +234,14 @@ class BonicBot:
 
     # --- precise motion (API.md §3) -----------------------------------------
 
-    def drive_distance(self, meters: float, speed: float = 0.3, timeout: float = 30.0) -> bool:
+    def drive_distance(
+        self, meters: float, speed: float = 0.3, timeout: float = 30.0
+    ) -> bool:
         return self._precise.drive_distance(meters, speed, timeout)
 
-    def rotate_angle(self, degrees: float, speed: float = 45.0, timeout: float = 30.0) -> bool:
+    def rotate_angle(
+        self, degrees: float, speed: float = 45.0, timeout: float = 30.0
+    ) -> bool:
         return self._precise.rotate_angle(degrees, speed, timeout)
 
     def drive_and_rotate(
@@ -158,9 +252,13 @@ class BonicBot:
         turn_speed: float = 45.0,
         timeout: float = 30.0,
     ) -> bool:
-        return self._precise.drive_and_rotate(meters, degrees, speed, turn_speed, timeout)
+        return self._precise.drive_and_rotate(
+            meters, degrees, speed, turn_speed, timeout
+        )
 
-    def draw_square(self, side_m: float, speed: float = 0.3, turn_speed: float = 45.0) -> bool:
+    def draw_square(
+        self, side_m: float, speed: float = 0.3, turn_speed: float = 45.0
+    ) -> bool:
         return self._precise.draw_square(side_m, speed, turn_speed)
 
     def enqueue(self, cmd_list: Iterable[Tuple[str, float]]) -> None:
@@ -175,7 +273,12 @@ class BonicBot:
     # --- navigation, mapping & locations (API.md §4) ------------------------
 
     def go_to(
-        self, x: float, y: float, theta: float = 0.0, wait: bool = True, timeout: float = 60.0
+        self,
+        x: float,
+        y: float,
+        theta: float = 0.0,
+        wait: bool = True,
+        timeout: float = 60.0,
     ) -> bool:
         return self.nav.go_to(x, y, theta, wait, timeout)
 
@@ -255,14 +358,34 @@ class BonicBot:
 
     # --- arms, grippers & neck (API.md §5) ----------------------------------
 
-    def set_servos(self, angles: Dict[str, float], duration: float = 1.0) -> bool:
-        return self.arm.set_servos(angles, duration)
+    def set_servos(
+        self,
+        angles: Dict[str, float],
+        duration: float = 1.0,
+        wait: bool = True,
+        timeout: Optional[float] = None,
+    ) -> bool:
+        return self.arm.set_servos(angles, duration, wait=wait, timeout=timeout)
 
-    def move_left_arm(self, shoulder: float, elbow: float, wait: bool = True) -> bool:
-        return self.arm.move_left_arm(shoulder, elbow, wait)
+    def move_left_arm(
+        self,
+        shoulder: float,
+        elbow: float,
+        wait: bool = True,
+        duration: float = 1.0,
+        timeout: Optional[float] = None,
+    ) -> bool:
+        return self.arm.move_left_arm(shoulder, elbow, wait, duration, timeout)
 
-    def move_right_arm(self, shoulder: float, elbow: float, wait: bool = True) -> bool:
-        return self.arm.move_right_arm(shoulder, elbow, wait)
+    def move_right_arm(
+        self,
+        shoulder: float,
+        elbow: float,
+        wait: bool = True,
+        duration: float = 1.0,
+        timeout: Optional[float] = None,
+    ) -> bool:
+        return self.arm.move_right_arm(shoulder, elbow, wait, duration, timeout)
 
     def set_grippers(self, left: float, right: float) -> bool:
         return self.arm.set_grippers(left, right)

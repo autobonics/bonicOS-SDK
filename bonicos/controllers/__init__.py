@@ -1,9 +1,9 @@
-"""Feature-group controllers ``BonicBot`` delegates to (ARCHITECTURE.md §1).
+"""Feature-group controllers ``BonicBot`` delegates to (keeps ``import bonicos`` cheap).
 
 Each controller is constructed by :class:`bonicos.robot.BonicBot` and takes
 the ``BonicBot`` instance itself, not a bare transport — this lets e.g.
 ``PreciseMotionController`` call back into ``robot.motion`` without every
-controller needing its own copy of motion logic (ARCHITECTURE.md §4).
+controller needing its own copy of motion logic (dev/ARCHITECTURE.md §4).
 """
 
 from .arm import ArmController

@@ -89,7 +89,5 @@ class SensorsController(ControllerBase):
                 return True
 
     def subscribe(self, events: Iterable[str]) -> bool:
-        result = self._command(
-            {"type": protocol.CMD_SUBSCRIBE, "events": list(events)}
-        )
+        result = self._command({"type": protocol.CMD_SUBSCRIBE, "events": list(events)})
         return bool(result.get("ok", False))

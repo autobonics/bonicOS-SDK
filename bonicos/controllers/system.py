@@ -77,7 +77,9 @@ class SystemController(ControllerBase):
         result = self._command(payload)
         return bool(result.get("ok", False))
 
-    def ask_llm(self, prompt: str, model: Optional[str] = None, timeout: float = 60.0) -> str:
+    def ask_llm(
+        self, prompt: str, model: Optional[str] = None, timeout: float = 60.0
+    ) -> str:
         """On-device LLM. **Display only** — never executed as a command.
 
         Blocks and returns the full text; tokens stream internally
@@ -107,7 +109,11 @@ class SystemController(ControllerBase):
                 # fall back to the last-value cache; a fast token burst may
                 # coalesce and drop intermediate chunks.
                 event = self._latest(protocol.EVENT_LLM_TOKEN)
-                if event is not None and event is not last_seen and event.get("id") == cmd_id:
+                if (
+                    event is not None
+                    and event is not last_seen
+                    and event.get("id") == cmd_id
+                ):
                     last_seen = event
                     chunks.append(event.get("token", ""))
                     if event.get("done"):

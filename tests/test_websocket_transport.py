@@ -35,7 +35,11 @@ def _handler(ws) -> None:
                     }
                 )
             )
-            ws.send(json.dumps({"type": "battery", "voltage": 12.0, "current": 1.0, "soc": 88.0}))
+            ws.send(
+                json.dumps(
+                    {"type": "battery", "voltage": 12.0, "current": 1.0, "soc": 88.0}
+                )
+            )
         elif msg["type"] == "drive":
             continue  # high-rate, no reply
         else:

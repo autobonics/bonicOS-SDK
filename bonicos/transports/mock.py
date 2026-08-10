@@ -69,7 +69,7 @@ class MockTransport:
         event log so a burst of same-type messages — e.g. streaming
         ``llm_token`` chunks — isn't lost to last-value-wins coalescing.
         Mirrors the ``self._events.append(msg)`` branch in
-        ARCHITECTURE.md §3.1's reference ``_rx_loop``.
+        the real transport's ``_rx_loop``.
         """
         msg = {"type": event, **payload}
         self._telemetry[event] = msg
@@ -108,14 +108,20 @@ class MockTransport:
 
     def wait_for_ack(self, cmd_id: int, timeout: float = 5.0) -> dict:
         if cmd_id in self._scripted_acks:
-            return {"type": protocol.TYPE_ACK, "id": cmd_id, **self._scripted_acks[cmd_id]}
+            return {
+                "type": protocol.TYPE_ACK,
+                "id": cmd_id,
+                **self._scripted_acks[cmd_id],
+            }
         # Find the command type this id was sent for.
         command_type: Optional[str] = None
         for i, msg in enumerate(self.sent, start=1):
             if i == cmd_id:
                 command_type = msg.get("type")
                 break
-        result = self._default_acks.get(command_type, {}) if command_type is not None else {}
+        result = (
+            self._default_acks.get(command_type, {}) if command_type is not None else {}
+        )
         return {"type": protocol.TYPE_ACK, "id": cmd_id, **result}
 
     #: The offline mock has no video path at all.
@@ -123,6 +129,7 @@ class MockTransport:
 
     def start_camera(self, cameras: list) -> None:
         from ..exceptions import CameraUnavailable
+
         raise CameraUnavailable("the mock transport has no camera")
 
     def stop_camera(self) -> None:

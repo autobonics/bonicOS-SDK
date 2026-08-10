@@ -94,7 +94,7 @@ Three patterns; the SDK's blocking methods are built on them.
    (`navigating → succeeded | failed | canceled`). The SDK's `wait_for_goal()`
    watches `nav_status`.
 3. **Client-side loop** — precise motion (`drive_distance`, …). No dedicated
-   server command in v1; the SDK loops `drive` + odom locally (ARCHITECTURE §4).
+   server command in v1; the SDK loops `drive` + odom locally.
 
 There is **no** generic per-command "completion event" in v1; use the pattern
 above per command. (A future `wait_for_completion(cmd_id)` may unify this.)

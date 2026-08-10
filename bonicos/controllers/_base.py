@@ -1,6 +1,6 @@
 """Shared plumbing every feature controller delegates to.
 
-Not part of the public API (ARCHITECTURE.md §1 lists the seven public
+Not part of the public API (see API.md for the public
 controller modules; this is the implementation detail that keeps
 ack/error/feature-gate handling from being duplicated seven times).
 """
@@ -28,7 +28,7 @@ class ControllerBase:
     def _require_feature(self, feature: str) -> None:
         """Fast, local, readable failure before sending a gated command.
 
-        The server re-gates independently (ARCHITECTURE.md §6) — this check
+        The server re-gates independently — this check
         exists only to fail closer to the call site with a clear message.
         """
         if not self._robot.features.get(feature, True):
@@ -43,7 +43,9 @@ class ControllerBase:
         result = self._transport.wait_for_ack(cmd_id, timeout)
         result_type = result.get("type")
         if result_type == protocol.TYPE_ERROR:
-            raise CommandError(msg.get("type", "?"), result.get("error", "unknown error"))
+            raise CommandError(
+                msg.get("type", "?"), result.get("error", "unknown error")
+            )
         if result_type == protocol.TYPE_FEATURE_UNAVAILABLE:
             raise FeatureUnavailable(str(result.get("feature") or msg.get("type", "?")))
         return result

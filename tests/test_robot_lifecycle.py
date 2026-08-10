@@ -17,9 +17,12 @@ from bonicos.transports.mock import MockTransport
 
 def _make_bonicbot(transport: MockTransport) -> BonicBot:
     """Build a real ``BonicBot`` around an already-constructed transport,
-    bypassing ``__init__``'s environment detection (which would otherwise
-    try to build a real WebSocket/WebRTC transport) — mirrors exactly what
-    ``__init__`` does once a transport exists.
+    mirroring exactly what ``__init__`` does once a transport exists.
+
+    Predates :func:`bonicos.use_transport`, which now does this through the
+    public API (see ``test_connect_resolution.py``); kept as-is because
+    these tests assert on post-construction state, not on how the transport
+    was chosen.
     """
     bot = BonicBot.__new__(BonicBot)
     auth_result = transport.connect(10.0)

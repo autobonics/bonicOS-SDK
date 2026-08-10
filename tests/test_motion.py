@@ -61,7 +61,9 @@ def test_duration_none_fires_and_returns(robot, transport) -> None:
 
 def test_is_moving_reads_odom(robot, transport) -> None:
     assert robot.motion.is_moving() is False
-    transport.set_telemetry("odom", {"x": 0, "y": 0, "theta": 0, "vx": 0.5, "vtheta": 0.0})
+    transport.set_telemetry(
+        "odom", {"x": 0, "y": 0, "theta": 0, "vx": 0.5, "vtheta": 0.0}
+    )
     assert robot.motion.is_moving() is True
 
 
@@ -69,7 +71,9 @@ def test_zero_drive_does_not_keep_alive(robot, transport) -> None:
     robot.motion.drive(0.0, 0.0)
     count_before = len(transport.sent)
     time.sleep(0.3)
-    assert len(transport.sent) == count_before  # no keepalive resends for a stopped robot
+    assert (
+        len(transport.sent) == count_before
+    )  # no keepalive resends for a stopped robot
 
 
 def test_nonzero_drive_keeps_alive_under_the_deadman(robot, transport) -> None:

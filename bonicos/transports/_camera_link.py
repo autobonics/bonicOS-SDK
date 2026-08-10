@@ -1,5 +1,6 @@
 """Native camera link — the WebRTC peer the WebSocket transport brings up
-behind the scenes for video (ARCHITECTURE note: camera is WebRTC-only).
+behind the scenes for video — media tracks are the only way it leaves the
+robot.
 
 The native SDK talks WebSocket for commands + telemetry. Video can't ride a
 WebSocket, so the first time the user asks for a frame, the WebSocket
@@ -24,6 +25,7 @@ import urllib.request
 from typing import Any, Dict, Optional
 
 from ..exceptions import CameraUnavailable
+from .base import Frame
 
 
 class NativeCameraLink:
@@ -53,8 +55,8 @@ class NativeCameraLink:
         if self._thread is not None:
             return  # idempotent
         try:
-            import aiortc  # noqa: F401
-            import av  # noqa: F401
+            import aiortc  # type: ignore[import-not-found]  # noqa: F401
+            import av  # type: ignore[import-not-found]  # noqa: F401
             import numpy  # noqa: F401
         except ImportError as exc:
             raise CameraUnavailable(
@@ -76,7 +78,7 @@ class NativeCameraLink:
             self.stop()
             raise CameraUnavailable(self._error)
 
-    def read_frame(self, camera: Optional[str] = None):
+    def read_frame(self, camera: Optional[str] = None) -> Optional[Frame]:
         """Latest BGR ndarray for ``camera`` (default: first), or None."""
         name = camera or (self._cameras[0] if self._cameras else None)
         mid = self._name_to_mid.get(name) if name else None
@@ -119,14 +121,14 @@ class NativeCameraLink:
         control = pc.createDataChannel("control")
 
         @control.on("open")
-        def _on_open():
+        def _on_open() -> None:
             # Authenticate like any peer so the robot's unauthenticated-peer
             # reaper doesn't drop this video-only link (token is ignored by
             # robot_app — access is gated platform-side).
             control.send(json.dumps({"type": "auth"}))
 
         @control.on("message")
-        def _on_control(raw):  # camera_tracks maps each track's mid to a name
+        def _on_control(raw: Any) -> None:  # camera_tracks maps mid -> name
             try:
                 data = json.loads(raw)
             except (ValueError, TypeError):
@@ -138,43 +140,50 @@ class NativeCameraLink:
             pc.addTransceiver("video", direction="recvonly")
 
         @pc.on("track")
-        def _on_track(track):
+        def _on_track(track: Any) -> None:
             asyncio.ensure_future(self._consume(track))
 
         offer = await pc.createOffer()
-        await pc.setLocalDescription(offer)   # aiortc gathers ICE fully here
+        await pc.setLocalDescription(offer)  # aiortc gathers ICE fully here
+        assert self._loop is not None  # set by start() before this coroutine runs
         answer_sdp = await self._loop.run_in_executor(
-            None, self._post_offer, pc.localDescription.sdp)
+            None, self._post_offer, pc.localDescription.sdp
+        )
         await pc.setRemoteDescription(
-            RTCSessionDescription(sdp=answer_sdp, type="answer"))
+            RTCSessionDescription(sdp=answer_sdp, type="answer")
+        )
         self._connected.set()
 
-    async def _consume(self, track) -> None:
+    async def _consume(self, track: Any) -> None:
         mid = self._mid_of(track)
         while True:
             try:
                 frame = await track.recv()
             except Exception:  # noqa: BLE001 - track ended / peer closed
                 return
-            if mid is None:                       # mid can lag the first frame
+            if mid is None:  # mid can lag the first frame
                 mid = self._mid_of(track)
             self._frames_by_mid[mid or track.id] = frame.to_ndarray(format="bgr24")
 
-    def _mid_of(self, track) -> Optional[str]:
+    def _mid_of(self, track: Any) -> Optional[str]:
         for t in self._pc.getTransceivers():
             if t.receiver is not None and t.receiver.track is track:
-                return t.mid
+                mid = t.mid
+                return str(mid) if mid is not None else None
         return None
 
     def _post_offer(self, sdp: str) -> str:
         body = json.dumps({"sdp": sdp, "sessionId": "bonicos-sdk-cam"}).encode()
         req = urllib.request.Request(
             f"http://{self._host}:{self._port}/webrtc/offer",
-            data=body, headers={"Content-Type": "application/json"})
+            data=body,
+            headers={"Content-Type": "application/json"},
+        )
         with urllib.request.urlopen(req, timeout=15) as resp:
-            return json.loads(resp.read().decode())["sdp"]
+            return str(json.loads(resp.read().decode())["sdp"])
 
     def _shutdown(self) -> None:
         if self._pc is not None:
             asyncio.ensure_future(self._pc.close())
+        assert self._loop is not None  # only scheduled while a loop is running
         self._loop.stop()

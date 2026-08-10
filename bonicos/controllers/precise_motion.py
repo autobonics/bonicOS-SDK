@@ -1,12 +1,12 @@
-"""Closed-loop precise motion (API.md §3) — client-side, v1 (ARCHITECTURE §4).
+"""Closed-loop precise motion (API.md §3) — client-side, v1 (dev/ARCHITECTURE.md §4).
 
 Ported from ``bonicbot-bridge/precisemotion.py``'s ``_drive_distance_internal``
 / ``_rotate_angle_internal`` (read odom -> compute error -> send ``drive`` ->
 repeat, distance via Euclidean delta from a captured start pose, rotation via
 signed-yaw-delta accumulation to dodge wraparound), but paced by
 ``transport.wait_for_update()`` instead of a fixed ``time.sleep()`` poll, per
-ARCHITECTURE.md §4's loop pseudocode. The on-robot cmd_vel deadman is the
-safety backstop for a stalled loop or dropped link (ARCHITECTURE.md §4).
+dev/ARCHITECTURE.md §4's loop pseudocode. The on-robot cmd_vel deadman is the
+safety backstop for a stalled loop or dropped link (dev/ARCHITECTURE.md §4).
 """
 
 from __future__ import annotations
@@ -39,7 +39,9 @@ class PreciseMotionController(ControllerBase):
         self._queue_cancel = threading.Event()
         self._queue_ok = True
 
-    def drive_distance(self, meters: float, speed: float = 0.3, timeout: float = 30.0) -> bool:
+    def drive_distance(
+        self, meters: float, speed: float = 0.3, timeout: float = 30.0
+    ) -> bool:
         odom = self._wait_for_odom(min(timeout, self.ODOM_WAIT_TIMEOUT_S))
         if odom is None:
             return False
@@ -63,7 +65,9 @@ class PreciseMotionController(ControllerBase):
         finally:
             motion.stop()
 
-    def rotate_angle(self, degrees: float, speed: float = 45.0, timeout: float = 30.0) -> bool:
+    def rotate_angle(
+        self, degrees: float, speed: float = 45.0, timeout: float = 30.0
+    ) -> bool:
         odom = self._wait_for_odom(min(timeout, self.ODOM_WAIT_TIMEOUT_S))
         if odom is None:
             return False
@@ -83,7 +87,10 @@ class PreciseMotionController(ControllerBase):
                     theta = odom["theta"]
                     accumulated += self._normalize_angle(theta - last_theta)
                     last_theta = theta
-                    if math.degrees(abs(accumulated)) >= target - self.ANGLE_TOLERANCE_DEG:
+                    if (
+                        math.degrees(abs(accumulated))
+                        >= target - self.ANGLE_TOLERANCE_DEG
+                    ):
                         return True
                 motion.drive(angular_z=cmd_speed)
                 self._transport.wait_for_update(self._UPDATE_POLL_TIMEOUT_S)
@@ -103,7 +110,9 @@ class PreciseMotionController(ControllerBase):
             degrees, turn_speed, half
         )
 
-    def draw_square(self, side_m: float, speed: float = 0.3, turn_speed: float = 45.0) -> bool:
+    def draw_square(
+        self, side_m: float, speed: float = 0.3, turn_speed: float = 45.0
+    ) -> bool:
         for _ in range(4):
             if not self.drive_distance(side_m, speed):
                 return False

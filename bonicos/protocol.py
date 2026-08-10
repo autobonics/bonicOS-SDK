@@ -1,7 +1,6 @@
 """Wire schema constants — the machine-readable mirror of ``PROTOCOL.md``.
 
-Pure data, no I/O. Safe to import from every transport, including inside
-Pyodide, at module load time.
+Pure data, no I/O. Safe to import from every transport at module load time.
 """
 
 from __future__ import annotations

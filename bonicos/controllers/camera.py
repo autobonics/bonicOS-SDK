@@ -19,6 +19,7 @@ from __future__ import annotations
 from typing import Dict, List, Optional
 
 from ..exceptions import CameraUnavailable
+from ..transports.base import Frame
 from ._base import ControllerBase
 
 
@@ -41,7 +42,7 @@ class CameraController(ControllerBase):
             )
         self._transport.start_camera(cameras or self._names())
 
-    def get_frame(self, camera: Optional[str] = None):
+    def get_frame(self, camera: Optional[str] = None) -> Optional[Frame]:
         """Latest frame (BGR ndarray) for ``camera`` (default: the first), or
         ``None`` if none has arrived yet. Starts the stream on first call."""
         self.start()

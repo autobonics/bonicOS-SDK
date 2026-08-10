@@ -1,10 +1,8 @@
-"""Optional mDNS lookup of a robot by id — native only.
+"""Optional mDNS lookup of a robot by id.
 
-Never imported from the Pyodide branch of :mod:`bonicos.robot` at all (that
-branch binds the host-preloaded WebRTC transport instead), so this module
-doesn't need the lazy-import dance ``transports/websocket.py`` and
-``transports/webrtc.py`` require — ``zeroconf`` is simply an optional
-``native`` extra, imported inside the one function that needs it.
+Only reached when :class:`~bonicos.robot.BonicBot` is constructed with no
+``host``. ``zeroconf`` is an optional ``discovery`` extra, imported inside
+the one function that needs it so a plain install never pays for it.
 
 **Assumption, pending alignment with the robot-side team:** the mDNS service
 type/TXT record shape below (``_bonicos._tcp.local.``, a ``robotId`` TXT
@@ -18,6 +16,8 @@ from __future__ import annotations
 import time
 from typing import Optional
 
+from .exceptions import ConnectionError as BonicConnectionError
+
 SERVICE_TYPE = "_bonicos._tcp.local."
 
 
@@ -27,8 +27,20 @@ def find_robot(robot_id: Optional[str] = None, timeout: float = 5.0) -> Optional
     If ``robot_id`` is given, only a service whose TXT record's ``robotId``
     matches is returned. Returns ``None`` if nothing is found within
     ``timeout`` seconds.
+
+    Raises :class:`~bonicos.exceptions.ConnectionError` if the optional
+    ``discovery`` extra isn't installed — reaching here at all means the
+    caller built ``BonicBot()`` with no ``host``, so an actionable message
+    beats the bare ``ModuleNotFoundError`` zeroconf would otherwise raise.
     """
-    from zeroconf import ServiceBrowser, Zeroconf
+    try:
+        from zeroconf import ServiceBrowser, Zeroconf
+    except ImportError as exc:
+        raise BonicConnectionError(
+            "mDNS discovery needs the optional dependency: "
+            "`pip install bonicos[discovery]` — or pass the robot's address "
+            'directly, e.g. BonicBot("192.168.1.50", robot_id="M1_001")'
+        ) from exc
 
     found: dict = {}
 

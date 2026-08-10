@@ -27,22 +27,32 @@ classifiers = [
     "Topic :: System :: Hardware :: Hardware Drivers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
     "Operating System :: OS Independent",
 ]
-requires-python = ">=3.11"
-dependencies = []
+# Ubuntu 22.04 (ROS humble's target OS — every bare-metal robot) ships
+# Python 3.10 as system python3; the run_code runner venv on those robots is
+# built with it (RUNCODE_IMPLEMENTATION.md §3). No 3.11-only syntax is used
+# anywhere in this package, so >=3.11 was only ever a conservative default,
+# not a real requirement — lowered to match what actually needs to install.
+requires-python = ">=3.10"
+# The WebSocket transport is the only way this SDK reaches a robot, so
+# `websockets` is a base dependency: `pip install bonicos` must produce a
+# package that can actually connect. It was previously the optional `native`
+# extra, on the theory that a Pyodide install shouldn't have to pull it — but
+# the browser now runs against MockTransport only (no robot behind it), so
+# nothing installs this package without needing a real transport.
+# transports/websocket.py still lazy-imports it inside connect() per
+# ARCHITECTURE.md §1; that rule is about import time, not about packaging.
+dependencies = [
+    "websockets>=12.0",
+]
 dynamic = ["version"]
 
 [project.optional-dependencies]
-# Absent in Pyodide — websockets is lazy-imported inside
-# transports/websocket.py's connect() so a Pyodide install never needs it
-# (ARCHITECTURE.md §1, §8).
-native = [
-    "websockets>=12.0",
-]
 # mDNS autodiscovery (discovery.py) — optional, native only.
 discovery = [
     "zeroconf>=0.132",
@@ -102,8 +112,7 @@ warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true
 
-# js / pyodide.ffi only exist inside a Pyodide runtime; zeroconf is an
-# optional native extra. Neither ships (or needs) type stubs here.
+# zeroconf is an optional extra (discovery.py) and ships no type stubs.
 [[tool.mypy.overrides]]
-module = ["js", "zeroconf"]
+module = ["zeroconf"]
 ignore_missing_imports = true

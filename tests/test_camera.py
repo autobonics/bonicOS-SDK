@@ -84,4 +84,4 @@ def test_websocket_transport_advertises_camera_support():
 
     tx = WebSocketTransport("127.0.0.1", robot_id="X")
     assert tx.supports_camera is True
-    assert tx.read_frame() is None            # nothing until start_camera
+    assert tx.read_frame() is None  # nothing until start_camera

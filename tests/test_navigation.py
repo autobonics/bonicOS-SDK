@@ -136,8 +136,12 @@ def test_stop_nav_mode(robot, transport) -> None:
 def test_get_nav_mode_issues_fresh_query(robot, transport) -> None:
     transport.script_ack(
         protocol.CMD_GET_NAV_MODE,
-        {"mode": "navigating", "map": "office", "transitioning": False,
-         "localized": True},
+        {
+            "mode": "navigating",
+            "map": "office",
+            "transitioning": False,
+            "localized": True,
+        },
     )
     assert robot.nav.get_nav_mode() == {
         "mode": "navigating",

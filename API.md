@@ -1,17 +1,13 @@
 # bonicos — User-Facing Python API
 
-The surface students and developers write against. Synchronous and blocking —
-no `async`/`await`. Identical whether the code runs on a laptop, in an on-robot
-runner, or in the browser (Pyodide, pro models). Wire details live in
-[PROTOCOL.md](./PROTOCOL.md); package internals in [ARCHITECTURE.md](./ARCHITECTURE.md).
+The complete method reference. Synchronous and blocking — no `async`/`await`.
+Identical whether your code runs on your own machine or on the robot itself.
+Wire details live in [PROTOCOL.md](./PROTOCOL.md).
 
 > **Marker:** methods tagged **🔌 stub** exist and are safe to call but are
-> **no-ops on the robot in v1** (the ROS path is not wired yet — PROTOCOL §8).
-> Code using them runs; the robot simply won't move that actuator until the
-> server side lands. Everything else is fully functional in v1.
-
-> **This is a proposal.** Method names/shape are open to redline before
-> implementation — see the "Open API choices" note at the end.
+> **no-ops on current robot firmware** — the robot accepts the command and
+> does nothing. Your code runs; that actuator just won't move until the robot
+> side lands. Everything else is fully functional.
 
 ---
 
@@ -23,20 +19,47 @@ from bonicos import BonicBot
 # Explicit host (developer laptop → robot on the LAN, or → tablet on lite models)
 robot = BonicBot("192.168.1.50", robot_id="M1_001")
 
-# On-robot runner container (localhost)
-robot = BonicBot(host="127.0.0.1", robot_id="M1_001")
-
-# Browser (Pyodide, pro models) / mDNS autodiscovery (native) — no args
+# Everywhere the environment already knows which robot this is:
+#   the on-robot runner ($BONICOS_HOST/$BONICOS_ROBOT_ID),
+#   or mDNS autodiscovery.
 robot = BonicBot()
 ```
 
+**A bare `BonicBot()` is a working program wherever the environment already
+knows which robot you mean** — which is what lets the same file run unchanged
+on your laptop and on the robot itself. It looks for a target in this order:
+
+| Order | Source | Typical use |
+|---|---|---|
+| 1 | the `host` / `robot_id` arguments | you, naming a robot from your own machine |
+| 2 | `$BONICOS_HOST` / `$BONICOS_ROBOT_ID` | set for you when your code runs on the robot |
+| 3 | mDNS autodiscovery | `pip install bonicos[discovery]` |
+
 | Method | Blocks? | Description |
 |---|---|---|
-| `BonicBot(host=None, *, robot_id=None, token=None, timeout=10.0)` | yes (connects) | Connect + handshake. Env auto-selects transport (WebSocket native / WebRTC in Pyodide). `token` defaults to `$BONICOS_TOKEN`. Raises `ConnectionError` on failure. |
+| `BonicBot(host=None, *, robot_id=None, token=None, timeout=10.0)` | yes (connects) | Connect + handshake, resolving the target per the table above. `token` defaults to `$BONICOS_TOKEN`. Raises `ConnectionError` on failure, naming every way to supply what was missing. |
 | `robot.is_connected() -> bool` | no | Live connection state. |
 | `robot.close()` | yes | Stop the robot, close the transport. Idempotent. |
 | `robot.features -> dict[str, bool]` | no | Series feature flags from the handshake (e.g. `robot.features["navigation"]`). |
 | `robot.robot_id -> str`, `robot.series -> str` | no | From the handshake. |
+
+### Trying it without hardware
+
+`BonicBot.simulated()` connects to a fake robot instead — no network, no
+physical robot required:
+
+```python
+robot = BonicBot.simulated()
+robot.move_forward(speed=0.3, duration=2)
+print(robot.get_position())   # a real integrated pose, not a stub value
+```
+
+Driving, arms, and telemetry all behave for real — `get_servo_angles()`
+converges the same way it would against hardware. Navigation and mapping
+calls ack and do nothing (no Nav2/SLAM is simulated), the same as their
+**🔌 stub** counterparts on real firmware. There's no separate API to learn:
+every method on this page works identically against `BonicBot.simulated()`
+and against a real robot.
 
 Supports the context-manager form, which guarantees a `stop` on exit
 (recommended for every run — matches the platform "stop in a `finally`" rule):
@@ -73,7 +96,7 @@ Grouped access: `robot.motion.*` (same methods).
 
 ## 3. Precise motion (closed-loop)
 
-Client-side control loops (ARCHITECTURE §4) over `drive` + odometry. **Blocking**
+Client-side control loops over `drive` + odometry. **Blocking**
 with a timeout; the on-robot deadman backstops a stalled loop.
 
 | Method | Description |
@@ -184,7 +207,7 @@ angles in **degrees** at the API boundary, converted to radians on the wire).
 set, not the old BLE-hardware set it was originally ported from.
 
 > **`wait=True` means the arm actually arrived, not just that the server
-> acked the command** (fixed 2026-08-04 — see `ARCHITECTURE.md` §4a for the
+> acked the command** (fixed 2026-08-04 — the
 > test evidence). It polls `get_servo_angles()` until every commanded joint
 > is within `8.6°` (`ArmController.CONVERGENCE_TOLERANCE_DEG`) of its
 > target, or `timeout` elapses — default `max(duration * 3, 5.0)`, padded
@@ -195,7 +218,7 @@ set, not the old BLE-hardware set it was originally ported from.
 > spuriously timing out the whole call.
 >
 > **You never need to specify a whole arm — partial calls work correctly**
-> (fixed 2026-08-04, `ARCHITECTURE.md` §4b): `move_left_arm(shoulder, elbow)`
+> (fixed 2026-08-04): `move_left_arm(shoulder, elbow)`
 > only names 2 of the arm's 7 joints, but the SDK automatically holds the
 > other 5 at their current position so the command isn't silently ignored
 > (the real controller requires a complete joint set per command — an
@@ -209,7 +232,7 @@ set, not the old BLE-hardware set it was originally ported from.
 > new `servo_command` to a group immediately preempts whatever trajectory
 > was still running, smoothly interpolating from the joint's current
 > position to the new target — it never queues, so there's no risk of a
-> stale command "catching up" later (`ARCHITECTURE.md` §4a).
+> stale command "catching up" later.
 
 Grouped access: `robot.arm.*`.
 
@@ -264,7 +287,7 @@ rate.
 | `robot.subscribe(events)` | Narrow the telemetry stream (e.g. `["pose", "battery"]`). |
 
 **Recommended loop pattern** (from `bonic-architecture.md` §5 — never spins,
-self-paces to the sensor rate, works identically in the browser):
+self-paces to the sensor rate):
 
 ```python
 while robot.wait_for_update():
@@ -294,18 +317,14 @@ robot (e.g. the M1's face and docking cameras) exposes each by name.
 | `robot.camera.start(cameras=None)` | Bring the stream up now instead of lazily on first `get_frame()`. Blocks until the link is established (or raises `CameraUnavailable` on timeout/no video path). |
 | `robot.camera.stop()` | Tear down the video path (idempotent). Commands/telemetry are unaffected. |
 
-If the transport genuinely has no video path (the offline mock) or the
-browser host didn't wire one up, camera calls raise `CameraUnavailable`
-rather than silently returning `None` forever.
+If there is no video path on this connection, camera calls raise `CameraUnavailable` rather than silently returning
+`None` forever.
 
-**Native (WebSocket) vs browser (Pyodide/WebRTC):** on native, the SDK opens
-its own `aiortc` peer to the robot on first use — `pip install
-bonicos[camera]` for the extra deps (`aiortc`, `numpy`). In the browser, the
-host already owns the WebRTC peer connection and decodes frames into a
-`SharedArrayBuffer` the SDK reads directly (numpy must be preloaded as a
-Pyodide package — no `aiortc`/`av` needed there, the host does the
-decoding); see `ARCHITECTURE.md` §3.2 and `webrtc.py`'s module docstring for
-the exact byte layout. Either way the student-facing call is identical.
+**How it works:** video leaves the robot as WebRTC media tracks, so the SDK
+opens its own `aiortc` peer on first use and hands you decoded frames. You
+never see the peer. It needs the extra deps: `pip install bonicos[camera]`
+(`aiortc`, `numpy`); without them the first camera call raises
+`CameraUnavailable` saying exactly that.
 
 Grouped access: `robot.camera.*`.
 
@@ -379,10 +398,14 @@ with BonicBot(robot_id="M1_001") as robot:      # autodiscovery
     robot.move_right_arm(shoulder=90, elbow=-30)
 ```
 
-**Browser (Pyodide) — identical code, pro models only**
+**Running on the robot itself — identical code**
+
+The on-robot runner exports `$BONICOS_HOST`/`$BONICOS_ROBOT_ID` for you, so
+the same file you ran from your laptop needs no edits, and
+`wait_for_update()` paces the loop to the real sensor rate:
 
 ```python
-robot = BonicBot()                 # binds the preloaded transport
+robot = BonicBot()
 while robot.wait_for_update():
     robot.drive(linear_x=0.2)
     if robot.get_distance_traveled() > 2.0:
@@ -390,20 +413,3 @@ while robot.wait_for_update():
 ```
 
 ---
-
-## Open API choices (please redline before implementation)
-
-1. **Class name / shape.** Proposed: `BonicBot` primary (brand-familiar), with an
-   optional `Robot` alias for the architecture doc's examples, flat convenience
-   methods **plus** grouped controllers (`robot.motion`, `robot.nav`, …). Pure-flat
-   or pure-namespaced are alternatives.
-2. **Angle units.** Proposed: **degrees** at the API boundary (matches both old
-   SDKs' student ergonomics), radians on the wire. Confirm.
-3. **`duration`-blocks-vs-returns** on motion helpers. Proposed: `None` =
-   fire-and-return, number = block-then-stop (matches `bonicbot-bridge`).
-4. **`wait=True` default** on nav/arm methods (block by default). Confirm vs
-   fire-and-forget default.
-5. **Naming migration.** A few method names differ from the old SDKs
-   (`go_to` vs `goto`, `set_expression` vs `control_head(mode=)`). Since there's
-   no backward-compat requirement, proposing the cleaner names — flag any you
-   want preserved.

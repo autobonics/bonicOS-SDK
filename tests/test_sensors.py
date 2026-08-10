@@ -27,18 +27,31 @@ def test_get_imu(robot, transport) -> None:
     transport.set_telemetry(
         "imu", {"ax": 1, "ay": 2, "az": 3, "gx": 4, "gy": 5, "gz": 6}
     )
-    assert robot.sensors.get_imu() == {"ax": 1, "ay": 2, "az": 3, "gx": 4, "gy": 5, "gz": 6}
+    assert robot.sensors.get_imu() == {
+        "ax": 1,
+        "ay": 2,
+        "az": 3,
+        "gx": 4,
+        "gy": 5,
+        "gz": 6,
+    }
 
 
 def test_get_distance_traveled_from_explicit_start(robot, transport) -> None:
-    transport.set_telemetry("odom", {"x": 3.0, "y": 4.0, "theta": 0.0, "vx": 0, "vtheta": 0})
+    transport.set_telemetry(
+        "odom", {"x": 3.0, "y": 4.0, "theta": 0.0, "vx": 0, "vtheta": 0}
+    )
     assert robot.sensors.get_distance_traveled(start=(0.0, 0.0)) == 5.0
 
 
 def test_get_distance_traveled_defaults_to_first_seen_odom(robot, transport) -> None:
-    transport.set_telemetry("odom", {"x": 1.0, "y": 1.0, "theta": 0.0, "vx": 0, "vtheta": 0})
+    transport.set_telemetry(
+        "odom", {"x": 1.0, "y": 1.0, "theta": 0.0, "vx": 0, "vtheta": 0}
+    )
     assert robot.sensors.get_distance_traveled() == 0.0  # baseline captured here
-    transport.set_telemetry("odom", {"x": 4.0, "y": 5.0, "theta": 0.0, "vx": 0, "vtheta": 0})
+    transport.set_telemetry(
+        "odom", {"x": 4.0, "y": 5.0, "theta": 0.0, "vx": 0, "vtheta": 0}
+    )
     assert robot.sensors.get_distance_traveled() == 5.0
 
 
@@ -49,6 +62,8 @@ def test_wait_for_data(robot, transport) -> None:
 
 
 def test_subscribe_sends_event_list(robot, transport) -> None:
-    transport.script_ack(protocol.CMD_SUBSCRIBE, {"ok": True, "events": ["pose", "battery"]})
+    transport.script_ack(
+        protocol.CMD_SUBSCRIBE, {"ok": True, "events": ["pose", "battery"]}
+    )
     assert robot.sensors.subscribe(["pose", "battery"]) is True
     assert transport.sent[-1]["events"] == ["pose", "battery"]

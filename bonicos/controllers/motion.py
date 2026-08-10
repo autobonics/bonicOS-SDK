@@ -36,11 +36,15 @@ class MotionController(ControllerBase):
         else:
             self._start_keepalive()
 
-    def move_forward(self, speed: float = 0.3, duration: Optional[float] = None) -> None:
+    def move_forward(
+        self, speed: float = 0.3, duration: Optional[float] = None
+    ) -> None:
         self.drive(linear_x=abs(speed))
         self._block_if_duration(duration)
 
-    def move_backward(self, speed: float = 0.3, duration: Optional[float] = None) -> None:
+    def move_backward(
+        self, speed: float = 0.3, duration: Optional[float] = None
+    ) -> None:
         self.drive(linear_x=-abs(speed))
         self._block_if_duration(duration)
 
@@ -78,7 +82,9 @@ class MotionController(ControllerBase):
             self._keepalive_stop.clear()
             return
         self._keepalive_stop.clear()
-        self._keepalive_thread = threading.Thread(target=self._keepalive_loop, daemon=True)
+        self._keepalive_thread = threading.Thread(
+            target=self._keepalive_loop, daemon=True
+        )
         self._keepalive_thread.start()
 
     def _keepalive_loop(self) -> None:

@@ -1,98 +1,126 @@
-# bonicOS-SDK (`bonicos`)
+# bonicos
 
-**One Python SDK for every BonicBot.** Replaces `bonicbot` (BLE + Android-app
-WebSocket) and `bonicbot-bridge` (ROS via rosbridge) with a single package that
-talks **one JSON protocol over one WebSocket** to the unified server in
-`bonicOS-robot-app`.
+**The Python SDK for BonicBot robots.** Drive the base, move the arms, run
+navigation and mapping, and read live sensor telemetry — from your own laptop
+or from a program running on the robot itself, with the same code either way.
 
-> **Status:** v1 implemented — see `bonicos/` (package) and `tests/`
-> (`pytest`/`mypy`/`flake8` all clean). These documents remain the contract
-> the code satisfies; two spots where the docs left the exact byte-level
-> contract to "whoever hosts it" are called out in `transports/webrtc.py`'s
-> module docstring (the SharedArrayBuffer layout) and `discovery.py`'s (the
-> mDNS service type) — both are this build's proposed convention, pending
-> alignment with the bonic.ai front end / robot-side teams.
+```bash
+pip install bonicos
+```
+
+```python
+from bonicos import BonicBot
+
+with BonicBot("192.168.1.50", robot_id="M1_001") as robot:
+    robot.move_forward(speed=0.3, duration=2)
+    robot.move_left_arm(shoulder_pitch=45, elbow=-30)
+    print(robot.get_battery(), "V")
+# motors stopped and the connection closed, even on an exception
+```
+
+Requires Python 3.11+. Pure Python — the same wheel runs on a laptop, a
+Raspberry Pi, or a Jetson.
 
 ---
 
-## Why this exists
+## Connecting
 
-Today there are two Python SDKs with two transports and two overlapping-but-
-different command surfaces:
+`bonicos` talks to the robot over your local network. You need the robot's
+address and its robot id:
 
-| SDK | Transport | Surface |
-|---|---|---|
-| `bonicbot` | BLE binary + WS to the Android app | servo-by-id, head expression modes, hand gestures, LED matrix, base motors, battery/distance; speak/sequences/camera via the app |
-| `bonicbot-bridge` | roslibpy over rosbridge `:9090` | motion + precise motion, Nav2 + locations + exploration, arm/gripper/neck controllers, vision pipeline, camera, sensors |
+```python
+robot = BonicBot("192.168.1.50", robot_id="M1_001")
+```
 
-A student's code is not portable between them, hardware primitives and ROS
-primitives live in different libraries, and neither speaks the transport the new
-`bonicOS-robot-app` server exposes. `bonicos` collapses both into **one wheel,
-one API, one protocol**, transport-agnostic underneath.
+The id must match the robot you're pointing at — it's a guard against driving
+the wrong machine on a network with several robots on it, and the connection is
+refused if it doesn't match.
 
-## What `bonicos` is
+If the environment already knows which robot you mean, a bare `BonicBot()`
+works. That's the case when your program runs **on the robot**, where
+`BONICOS_HOST` and `BONICOS_ROBOT_ID` are set for you — so a script you
+developed on your laptop needs no edits to run on the robot. You can also set
+those variables yourself, or install `bonicos[discovery]` to find a robot by
+mDNS.
 
-- A **synchronous, blocking, student-friendly** Python API (the reactor/thread
-  machinery is hidden), matching the ergonomics both old SDKs already had.
-- A **transport-agnostic** client. The same `robot.py` logic runs over:
-  - **WebSocket** — native Python (developer laptop, on-robot runner container).
-  - **WebRTC + SharedArrayBuffer** — inside the browser (Pyodide, the bonic.ai
-    developer studio). *Pro models only.*
-  - **sim** / **mock** — Three.js digital twin and hardware-free tests.
-- **Host-agnostic.** It connects to a WebSocket endpoint speaking the `bonicos`
-  protocol and does not care *who* serves it (see topology below).
+> **Anyone on the same network can connect.** There is no authentication yet —
+> the robot id is a wrong-robot guard, not a password. Run robots on a network
+> you trust.
 
-## The one thing that surprises people: who hosts the server
+No robot handy? `BonicBot.simulated()` connects to a fake one instead —
+driving, arms, and telemetry all behave for real, with no network and no
+hardware required.
 
-`bonicos` always connects to a WebSocket server. **Which process is that server
-depends on the robot model.**
+---
 
-| Model | Has a processor (Pi/Jetson)? | WS server host | Browser (Pyodide) coding? |
-|---|---|---|---|
-| **Lite** (s1-lite, a2-lite) — always ships with an Android tablet | No | **The Flutter app** on the tablet | No (native SDK only) |
-| **Pro** with Android tablet | Yes | `bonicOS-robot-app` on the processor | Yes |
-| **Pro** without tablet (a2-pro) | Yes | `bonicOS-robot-app` on the processor | Yes |
+## What you can do
 
-The SDK is identical in all three cases. The protocol is identical. Only the
-process on the other end of the socket differs. This is the whole reason the
-protocol contract ([PROTOCOL.md](./PROTOCOL.md)) is defined independently of the
-server.
+| Area | Examples |
+|---|---|
+| **Motion** | `move_forward`, `move_backward`, `turn_left`, `turn_right`, `stop`, raw `drive` |
+| **Precise motion** | `drive_distance`, `rotate_angle`, `drive_and_rotate`, `draw_square`, queued routines |
+| **Navigation** | `go_to(x, y)`, `navigate_waypoints`, `cancel_goal`, `wait_for_goal`, `get_plan` |
+| **Mapping** | `enter_mapping_mode`, `start_mapping`, `save_map`, `list_maps`, `enter_navigation_mode` |
+| **Arms & grippers** | `move_left_arm`, `move_right_arm`, `set_servos`, `set_gripper`, `set_neck`, `get_servo_angles` |
+| **Sensors** | `get_position`, `get_battery`, `get_imu`, `get_servo_angles`, `wait_for_update` |
+| **Camera** | `get_camera_frame()` → BGR numpy arrays (needs `pip install bonicos[camera]`) |
+| **System** | `speak`, `health`, `ask_llm`, session status and recovery |
 
-## Read these in order
+Full reference with every signature: **[API.md](./API.md)**.
 
-1. **[ARCHITECTURE.md](./ARCHITECTURE.md)** — package layout, transports, the
-   sync facade, the Pyodide/SharedArrayBuffer bridge, model topology, and the
-   design decisions (and the reasoning behind each).
-2. **[PROTOCOL.md](./PROTOCOL.md)** — the wire contract: message envelope,
-   every command, telemetry events, versioning, the stub convention, and
-   `speak` routing. Shared verbatim with `bonicOS-robot-app`.
-3. **[API.md](./API.md)** — the user-facing Python API: classes, every method,
-   signatures, blocking semantics, and worked examples.
+Movement calls block until the robot actually gets there — `move_left_arm(...)`
+returns when the joint has converged on its target, not when the command was
+merely acknowledged.
 
-## Scope of the first release (v1)
+### Not yet working on the robot
 
-**Core first: motion, navigation, servos/arms, telemetry.** Deliberately
-included even where the robot-side ROS topic does not exist yet — those land as
-**stub handlers** on the server (log + no-op) so the SDK API is complete and
-stable before `bonicOS-m1-ros` grows the topics.
+Some commands are accepted and silently do nothing on current robot firmware.
+Your code runs; that actuator just doesn't move. They are marked **🔌 stub** in
+[API.md](./API.md):
 
-**Deferred to a later phase:** vision pipeline (YOLO/face/pose/gesture/ArUco),
-autonomous exploration, sequences. Live camera-frame streaming is implemented
-on native and **SDK-side-only** on the browser transport (`webrtc.py`'s
-`frames` SharedArrayBuffer contract is fully specified and read; see
-ARCHITECTURE.md §3.2) — end-to-end use still needs the bonic.ai front end to
-build the host half (Pyodide worker + peer connection + writing decoded
-frames into that buffer), which doesn't exist yet.
+- Named locations — `save_location`, `goto_location`, `list_locations`,
+  `delete_location`, `delete_all_locations`
+- Nav2 lifecycle — `start_navigation`, `stop_navigation`
+- `servo_single`, head expression (`head_mode`, `head_look`), and the LED
+  matrix (`display_*`)
 
-**Not carried over:** BLE transport (everything routes through the server;
-BLE is demoted to provisioning per the platform architecture) and any
-backward-compatibility shim for `bonicbot` / `bonicbot-bridge` (no significant
-user base — clean break).
+Everything else in the table above is live. Vision pipelines (face/pose/object
+detection), autonomous exploration, and recorded sequences are not in this
+release.
 
-## Related documents (other repos)
+---
 
-- `bonicOS-robot-app/bonic-architecture.md` — platform architecture (browser
-  execution, transports, SAB bridge, safety, access control).
-- `bonicOS-robot-app/bonicbot_webrtc_protocol_spec.md` — WebRTC transport +
-  local WS lane wire format; §7/§9 already name `bonicos` as this repo.
-- `bonicOS-robot-app/OVERVIEW.md` — the server this SDK talks to.
+## Safety
+
+- Use the context-manager form (`with BonicBot(...) as robot:`) or call
+  `robot.close()` in a `finally`. Both stop the robot on the way out.
+- The robot stops its own motors if it stops hearing from you (roughly 400 ms),
+  so a crashed script or a dropped connection will not leave it driving. That
+  backstop covers driving only — a navigation goal keeps running, so cancel it
+  explicitly if you're bailing out.
+
+---
+
+## Installing extras
+
+```bash
+pip install bonicos              # driving, arms, navigation, telemetry
+pip install bonicos[camera]      # + camera frames (aiortc, numpy)
+pip install bonicos[discovery]   # + find a robot by mDNS
+```
+
+Each extra reports what's missing if you use a feature without it, rather than
+failing with an import error.
+
+---
+
+## Documentation
+
+- **[API.md](./API.md)** — every class and method, with blocking behaviour and
+  worked examples.
+- **[PROTOCOL.md](./PROTOCOL.md)** — the wire protocol, if you're writing your
+  own client or working on the robot side.
+
+## License
+
+MIT — see [LICENSE](./LICENSE). © Autobonics Pvt Ltd.

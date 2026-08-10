@@ -1,9 +1,9 @@
 """The transport seam — the only interface ``robot.py`` depends on.
 
-Every backend (``websocket``, ``webrtc``, ``sim``, ``mock``) implements this
-``Protocol`` exactly as specified in ARCHITECTURE.md §2. ``robot.py`` never
-imports a concrete transport module directly; it receives one already
-constructed.
+Every backend (``websocket``, ``mock``) implements this ``Protocol``, and an
+embedding runtime may supply its own through
+:func:`bonicos.use_transport`. ``robot.py`` never imports a concrete
+transport module directly; it receives one already constructed.
 """
 
 from __future__ import annotations
@@ -53,22 +53,21 @@ class Transport(Protocol):
         """Block until the server acks/errors this command id."""
         ...
 
-    #: Whether the SDK can obtain camera video over this transport. Camera is
-    #: always WebRTC underneath: the browser (Pyodide) transport gets frames
-    #: from the JS host, and the native WebSocket transport transparently
-    #: brings up its OWN WebRTC peer for video (start_camera) — so both report
-    #: ``True``. A transport with no video path at all (mock) reports ``False``
-    #: so the camera API fails with a clear message instead of returning
-    #: ``None`` forever.
+    #: Whether the SDK can obtain camera video over this transport. Video is
+    #: WebRTC underneath — media tracks are the only way it leaves the robot —
+    #: so the WebSocket transport transparently brings up its own peer on
+    #: ``start_camera`` and reports ``True``. A transport with no video path
+    #: (mock) reports ``False`` so the camera API fails with a clear message
+    #: instead of returning ``None`` forever.
     supports_camera: bool
 
     def start_camera(self, cameras: "list[str]") -> None:
         """Bring up the camera video path for ``cameras`` (idempotent).
 
-        On the native transport this opens a WebRTC peer to the robot behind
-        the scenes; in the browser runtime the host is already streaming and
-        this is a no-op. Raises :class:`~bonicos.exceptions.CameraUnavailable`
-        if video can't be established (missing extra deps, unreachable robot).
+        Opens a WebRTC peer to the robot behind the scenes — the caller never
+        sees one. Raises :class:`~bonicos.exceptions.CameraUnavailable` if
+        video can't be established (missing ``[camera]`` extra, unknown
+        camera name, unreachable robot).
         """
         ...
 

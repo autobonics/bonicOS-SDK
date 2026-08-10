@@ -28,8 +28,12 @@ def test_restart_base_session(robot, transport) -> None:
 def test_restart_base_session_refused_while_moving(robot, transport) -> None:
     transport.script_ack(
         protocol.CMD_RESTART_BASE_SESSION,
-        {"ok": False, "error": "robot is moving — stop it first",
-         "running": True, "transitioning": False},
+        {
+            "ok": False,
+            "error": "robot is moving — stop it first",
+            "running": True,
+            "transitioning": False,
+        },
     )
     assert robot.system.restart_base_session() is False
 
@@ -45,12 +49,24 @@ def test_get_session_status(robot, transport) -> None:
     transport.script_ack(
         protocol.CMD_GET_SESSION_STATUS,
         {
-            "base": {"running": True, "owned": True, "transitioning": False,
-                     "error": None},
-            "nav": {"mode": "navigating", "map": "office", "transitioning": False,
-                    "localized": True},
-            "health": {"running": True, "owned": True, "clock_publishers": 1,
-                       "issues": []},
+            "base": {
+                "running": True,
+                "owned": True,
+                "transitioning": False,
+                "error": None,
+            },
+            "nav": {
+                "mode": "navigating",
+                "map": "office",
+                "transitioning": False,
+                "localized": True,
+            },
+            "health": {
+                "running": True,
+                "owned": True,
+                "clock_publishers": 1,
+                "issues": [],
+            },
         },
     )
     status = robot.system.get_session_status()
@@ -66,8 +82,11 @@ def test_get_base_session_reads_cached_telemetry(robot, transport) -> None:
         {"running": True, "owned": False, "transitioning": False, "error": None},
     )
     assert robot.system.get_base_session() == {
-        "type": "base_session", "running": True, "owned": False,
-        "transitioning": False, "error": None,
+        "type": "base_session",
+        "running": True,
+        "owned": False,
+        "transitioning": False,
+        "error": None,
     }
 
 
@@ -91,7 +110,9 @@ def test_reconfig_wifi(robot, transport) -> None:
 
 
 def test_trigger_update(robot, transport) -> None:
-    transport.script_ack(protocol.CMD_TRIGGER_UPDATE, {"ok": True, "detail": "restarting"})
+    transport.script_ack(
+        protocol.CMD_TRIGGER_UPDATE, {"ok": True, "detail": "restarting"}
+    )
     assert robot.system.trigger_update() is True
 
 
@@ -106,9 +127,13 @@ def test_speak(robot, transport) -> None:
 def test_ask_llm_streams_and_joins_tokens(robot, transport) -> None:
     def pusher() -> None:
         time.sleep(0.02)
-        transport.push_event(protocol.EVENT_LLM_TOKEN, {"id": 1, "token": "Hel", "done": False})
+        transport.push_event(
+            protocol.EVENT_LLM_TOKEN, {"id": 1, "token": "Hel", "done": False}
+        )
         time.sleep(0.02)
-        transport.push_event(protocol.EVENT_LLM_TOKEN, {"id": 1, "token": "lo", "done": True})
+        transport.push_event(
+            protocol.EVENT_LLM_TOKEN, {"id": 1, "token": "lo", "done": True}
+        )
 
     threading.Thread(target=pusher, daemon=True).start()
     text = robot.system.ask_llm("say hi", timeout=2.0)
