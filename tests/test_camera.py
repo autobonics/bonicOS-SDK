@@ -82,6 +82,6 @@ def test_websocket_transport_advertises_camera_support():
     # support even though no frame exists until start_camera connects.
     from bonicos.transports.websocket import WebSocketTransport
 
-    tx = WebSocketTransport("127.0.0.1", robot_id="X")
+    tx = WebSocketTransport("127.0.0.1")
     assert tx.supports_camera is True
     assert tx.read_frame() is None  # nothing until start_camera

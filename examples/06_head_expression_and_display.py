@@ -10,11 +10,10 @@ Nothing here can move the base or arms.
 from bonicos import BonicBot, HeadMode
 
 HOST = "192.168.29.54"  # robot/tablet IP — e.g. 172.20.10.2 for the Gazebo sim
-ROBOT_ID = "M1_001"
 
 
 def main() -> None:
-    with BonicBot(HOST, robot_id=ROBOT_ID) as robot:
+    with BonicBot(HOST) as robot:
         robot.wait_for_data()
 
         for mode in (HeadMode.HAPPY, HeadMode.SURPRISED, HeadMode.NORMAL):

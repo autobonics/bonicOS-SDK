@@ -9,11 +9,10 @@ still runs and blocks until accepted, it just won't be audible yet.
 from bonicos import BonicBot
 
 HOST = "192.168.29.54"  # robot/tablet IP — e.g. 172.20.10.2 for the Gazebo sim
-ROBOT_ID = "M1_001"
 
 
 def main() -> None:
-    with BonicBot(HOST, robot_id=ROBOT_ID) as robot:
+    with BonicBot(HOST) as robot:
         ok = robot.speak("Hello, I am running the bonicos SDK examples.")
         print(f"speak(...) -> {ok}")
 

@@ -11,16 +11,30 @@ from __future__ import annotations
 import json
 import threading
 import time
+import urllib.parse
 
 import pytest
 
 websockets = pytest.importorskip("websockets")
 from websockets.sync.server import serve  # noqa: E402
 
+from bonicos import protocol  # noqa: E402
+from bonicos.exceptions import ConnectionError as BonicConnectionError  # noqa: E402
 from bonicos.transports.websocket import WebSocketTransport  # noqa: E402
+
+#: Mirrors robot_app's core/local_ws.py v0 policy: robotId is optional, but
+#: if the client sends one it must match this server's own id, or the
+#: connection is refused with CLOSE_CODE_WRONG_ROBOT.
+_SERVER_ROBOT_ID = "T1"
 
 
 def _handler(ws) -> None:
+    query = urllib.parse.parse_qs(urllib.parse.urlsplit(ws.request.path).query)
+    robot_id = query.get("robotId", [None])[0]
+    if robot_id is not None and robot_id != _SERVER_ROBOT_ID:
+        ws.close(code=protocol.CLOSE_CODE_WRONG_ROBOT)
+        return
+
     for raw in ws:
         msg = json.loads(raw)
         if msg["type"] == "auth":
@@ -29,7 +43,7 @@ def _handler(ws) -> None:
                     {
                         "type": "auth_result",
                         "ok": True,
-                        "robot_id": "T1",
+                        "robot_id": _SERVER_ROBOT_ID,
                         "series": "M",
                         "features": {"navigation": True},
                     }
@@ -53,6 +67,16 @@ def server():
         thread.start()
         yield srv
         srv.shutdown()
+
+
+def test_build_url_omits_robot_id_query_param_by_default() -> None:
+    transport = WebSocketTransport("127.0.0.1", port=1234)
+    assert transport._build_url() == "ws://127.0.0.1:1234/ws"
+
+
+def test_build_url_includes_robot_id_query_param_when_given() -> None:
+    transport = WebSocketTransport("127.0.0.1", robot_id="M1_001", port=1234)
+    assert transport._build_url() == "ws://127.0.0.1:1234/ws?robotId=M1_001"
 
 
 def test_handshake_telemetry_and_ack_over_a_real_socket(server) -> None:
@@ -87,7 +111,7 @@ def test_handshake_telemetry_and_ack_over_a_real_socket(server) -> None:
 
 def test_drive_omits_id_and_is_not_acked(server) -> None:
     port = server.socket.getsockname()[1]
-    transport = WebSocketTransport("127.0.0.1", robot_id="T1", port=port)
+    transport = WebSocketTransport("127.0.0.1", port=port)
     try:
         transport.connect(timeout=5.0)
         transport.send({"type": "drive", "linear_x": 0.1, "angular_z": 0.0})
@@ -100,3 +124,23 @@ def test_drive_omits_id_and_is_not_acked(server) -> None:
         assert ack["ok"] is True
     finally:
         transport.close()
+
+
+def test_matching_robot_id_connects_normally(server) -> None:
+    port = server.socket.getsockname()[1]
+    transport = WebSocketTransport("127.0.0.1", robot_id=_SERVER_ROBOT_ID, port=port)
+    try:
+        auth = transport.connect(timeout=5.0)
+        assert auth["robot_id"] == _SERVER_ROBOT_ID
+    finally:
+        transport.close()
+
+
+def test_wrong_robot_id_is_refused_with_a_clear_error(server) -> None:
+    port = server.socket.getsockname()[1]
+    transport = WebSocketTransport("127.0.0.1", robot_id="WRONG_ID", port=port)
+    with pytest.raises(BonicConnectionError) as excinfo:
+        transport.connect(timeout=5.0)
+    message = str(excinfo.value)
+    assert str(protocol.CLOSE_CODE_WRONG_ROBOT) in message
+    assert "WRONG_ID" in message

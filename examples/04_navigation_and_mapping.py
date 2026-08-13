@@ -29,11 +29,10 @@ This moves the robot when navigation is available. Set HOST below before running
 from bonicos import BonicBot, FeatureUnavailable
 
 HOST = "192.168.29.54"  # robot/tablet IP — e.g. 172.20.10.2 for the Gazebo sim
-ROBOT_ID = "M1_001"
 
 
 def main() -> None:
-    with BonicBot(HOST, robot_id=ROBOT_ID) as robot:
+    with BonicBot(HOST) as robot:
         robot.wait_for_data()
 
         if not robot.features.get("navigation"):

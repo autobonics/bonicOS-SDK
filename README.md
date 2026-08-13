@@ -11,7 +11,7 @@ pip install bonicos
 ```python
 from bonicos import BonicBot
 
-with BonicBot("192.168.1.50", robot_id="M1_001") as robot:
+with BonicBot("192.168.1.50") as robot:
     robot.move_forward(speed=0.3, duration=2)
     robot.move_left_arm(shoulder=45, elbow=-30)
     print(robot.get_battery(), "V")
@@ -26,26 +26,32 @@ Raspberry Pi, or a Jetson.
 ## Connecting
 
 `bonicos` talks to the robot over your local network. You need the robot's
-address and its robot id:
+address:
+
+```python
+robot = BonicBot("192.168.1.50")
+```
+
+If the environment already knows which robot you mean, a bare `BonicBot()`
+works. That's the case when your program runs **on the robot**, where
+`BONICOS_HOST` is set for you — so a script you developed on your laptop
+needs no edits to run on the robot. You can also set that variable yourself,
+or install `bonicos[discovery]` to find a robot by mDNS.
+
+On a classroom LAN with several robots, `robot_id` is optional but useful:
+pin it and the connection only succeeds against that specific robot —
 
 ```python
 robot = BonicBot("192.168.1.50", robot_id="M1_001")
 ```
 
-The id must match the robot you're pointing at — it's a guard against driving
-the wrong machine on a network with several robots on it, and the connection is
-refused if it doesn't match.
+— and it doubles as the filter for `bonicos[discovery]` when you don't
+know the address either (`BonicBot(robot_id="M1_001")`). Leave it off for
+the common case of one robot, or a `host` you already trust.
 
-If the environment already knows which robot you mean, a bare `BonicBot()`
-works. That's the case when your program runs **on the robot**, where
-`BONICOS_HOST` and `BONICOS_ROBOT_ID` are set for you — so a script you
-developed on your laptop needs no edits to run on the robot. You can also set
-those variables yourself, or install `bonicos[discovery]` to find a robot by
-mDNS.
-
-> **Anyone on the same network can connect.** There is no authentication yet —
-> the robot id is a wrong-robot guard, not a password. Run robots on a network
-> you trust.
+> **Anyone on the same network can connect.** There is no authentication yet
+> — `robot_id` is a wrong-robot guard, not a password. Run robots on a
+> network you trust.
 
 No robot handy? `BonicBot.simulated()` connects to a fake one instead —
 driving, arms, and telemetry all behave for real, with no network and no

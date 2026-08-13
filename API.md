@@ -17,6 +17,10 @@ Wire details live in [PROTOCOL.md](./PROTOCOL.md).
 from bonicos import BonicBot
 
 # Explicit host (developer laptop → robot on the LAN, or → tablet on lite models)
+robot = BonicBot("192.168.1.50")
+
+# Optional robot_id: a wrong-robot guard on a LAN with several robots, or
+# the filter for mDNS discovery when host isn't known either.
 robot = BonicBot("192.168.1.50", robot_id="M1_001")
 
 # Everywhere the environment already knows which robot this is:
@@ -35,9 +39,11 @@ on your laptop and on the robot itself. It looks for a target in this order:
 | 2 | `$BONICOS_HOST` / `$BONICOS_ROBOT_ID` | set for you when your code runs on the robot |
 | 3 | mDNS autodiscovery | `pip install bonicos[discovery]` |
 
+`robot_id` is optional at every step — `host` alone is enough to connect.
+
 | Method | Blocks? | Description |
 |---|---|---|
-| `BonicBot(host=None, *, robot_id=None, token=None, timeout=10.0)` | yes (connects) | Connect + handshake, resolving the target per the table above. `token` defaults to `$BONICOS_TOKEN`. Raises `ConnectionError` on failure, naming every way to supply what was missing. |
+| `BonicBot(host=None, *, robot_id=None, token=None, timeout=10.0)` | yes (connects) | Connect + handshake, resolving the target per the table above. `robot_id`, if given, must match the robot's own id or the connection is refused. `token` defaults to `$BONICOS_TOKEN`. Raises `ConnectionError` on failure, naming every way to supply what was missing. |
 | `robot.is_connected() -> bool` | no | Live connection state. |
 | `robot.close()` | yes | Stop the robot, close the transport. Idempotent. |
 | `robot.features -> dict[str, bool]` | no | Series feature flags from the handshake (e.g. `robot.features["navigation"]`). |
@@ -71,7 +77,7 @@ Supports the context-manager form, which guarantees a `stop` on exit
 (recommended for every run — matches the platform "stop in a `finally`" rule):
 
 ```python
-with BonicBot("192.168.1.50", robot_id="M1_001") as robot:
+with BonicBot("192.168.1.50") as robot:
     robot.move_forward(duration=2)
 # motors stopped, socket closed, even on exception
 ```
@@ -385,7 +391,7 @@ exceptions** inside user code (platform requirement) so student programs can
 ```python
 from bonicos import BonicBot
 
-with BonicBot("192.168.1.50", robot_id="M1_001") as robot:
+with BonicBot("192.168.1.50") as robot:
     robot.wait_for_data()
     for _ in range(4):
         robot.drive_distance(1.0)
@@ -397,7 +403,7 @@ with BonicBot("192.168.1.50", robot_id="M1_001") as robot:
 but only navigation moves the robot in v1)
 
 ```python
-with BonicBot(robot_id="M1_001") as robot:      # autodiscovery
+with BonicBot() as robot:                       # autodiscovery
     if robot.features["navigation"]:
         robot.goto_location("kitchen")          # blocks until arrival
     robot.set_expression("happy")               # no-op in v1

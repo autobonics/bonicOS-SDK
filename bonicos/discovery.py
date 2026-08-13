@@ -25,8 +25,9 @@ def find_robot(robot_id: Optional[str] = None, timeout: float = 5.0) -> Optional
     """Return the IP of a robot advertising ``SERVICE_TYPE`` over mDNS.
 
     If ``robot_id`` is given, only a service whose TXT record's ``robotId``
-    matches is returned. Returns ``None`` if nothing is found within
-    ``timeout`` seconds.
+    matches is returned — useful for picking one robot out of several
+    advertising on the same LAN. Otherwise the first one found wins.
+    Returns ``None`` if nothing is found within ``timeout`` seconds.
 
     Raises :class:`~bonicos.exceptions.ConnectionError` if the optional
     ``discovery`` extra isn't installed — reaching here at all means the
@@ -39,7 +40,7 @@ def find_robot(robot_id: Optional[str] = None, timeout: float = 5.0) -> Optional
         raise BonicConnectionError(
             "mDNS discovery needs the optional dependency: "
             "`pip install bonicos[discovery]` — or pass the robot's address "
-            'directly, e.g. BonicBot("192.168.1.50", robot_id="M1_001")'
+            'directly, e.g. BonicBot("192.168.1.50")'
         ) from exc
 
     found: dict = {}

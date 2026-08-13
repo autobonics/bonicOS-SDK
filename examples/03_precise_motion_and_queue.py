@@ -11,7 +11,6 @@ This moves the robot. Set HOST below before running.
 from bonicos import BonicBot
 
 HOST = "192.168.29.54"  # robot/tablet IP — e.g. 172.20.10.2 for the Gazebo sim
-ROBOT_ID = "M1_001"
 
 
 def main() -> None:
@@ -19,7 +18,7 @@ def main() -> None:
         "This will physically move the robot. Press Enter to continue (Ctrl+C aborts)"
     )
 
-    with BonicBot(HOST, robot_id=ROBOT_ID) as robot:
+    with BonicBot(HOST) as robot:
         robot.wait_for_data()
 
         ok = robot.drive_distance(0.5, speed=0.3, timeout=15.0)

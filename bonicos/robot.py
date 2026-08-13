@@ -26,6 +26,16 @@ simulator, in the on-robot runner, and on a laptop:
    sets, so user code never hardcodes ``127.0.0.1``;
 4. mDNS autodiscovery (optional ``discovery`` extra).
 
+**``robot_id`` is optional, not a second required identifier.** ``host``
+alone is enough to connect — it already names one specific machine.
+``robot_id``, when given, does two things: on the local WS lane it becomes
+a wrong-robot guard checked at handshake time (the server refuses the
+connection if it doesn't match its own id — a safety net against a stale
+IP after a DHCP change, not authentication); and when no ``host`` is given
+at all, it narrows mDNS discovery to one robot on a LAN with several
+advertising the service. Skip it entirely for the common case (one robot,
+or you already trust ``host``).
+
 This replaced an earlier ``sys.platform == "emscripten"`` check. Injection
 is strictly better: it also covers the runner (step 3), and it keeps the
 environment's knowledge in the environment instead of teaching the SDK to
@@ -111,13 +121,8 @@ class BonicBot:
                         "no robot address given and mDNS discovery found none"
                         + (f" with robot_id={robot_id!r}" if robot_id else "")
                         + " — pass one explicitly, e.g. "
-                        'BonicBot("192.168.1.50", robot_id="M1_001")'
+                        'BonicBot("192.168.1.50")'
                     )
-            if robot_id is None:
-                raise BonicConnectionError(
-                    "robot_id is required — pass robot_id=..., set "
-                    "$BONICOS_ROBOT_ID, or let mDNS discovery supply it"
-                )
             resolved_token = (
                 token if token is not None else os.environ.get("BONICOS_TOKEN")
             )

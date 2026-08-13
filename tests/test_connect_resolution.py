@@ -7,6 +7,12 @@ transport wins (browser simulator), then explicit arguments (laptop), then
 If that ordering regresses, the same user file stops running unchanged
 across the simulator, the runner, and a developer's machine — which is the
 one property the whole Code Studio plan rests on.
+
+``robot_id`` itself is optional throughout — ``host`` alone is always
+enough to connect. These tests cover *resolution* (which host/robot_id wins
+when several sources disagree); test_websocket_transport.py and robot_app's
+test_local_ws.py cover what the optional ``robotId`` guard actually does at
+the wire level.
 """
 
 from __future__ import annotations
@@ -42,12 +48,12 @@ def ws_args(monkeypatch):
     captured: dict = {}
 
     class _FakeWs:
-        def __init__(self, host, *, robot_id, token=None):
+        def __init__(self, host, *, robot_id=None, token=None):
             captured.update(host=host, robot_id=robot_id, token=token)
 
         def connect(self, timeout):
             return {
-                "robot_id": captured["robot_id"],
+                "robot_id": captured["robot_id"] or "M1_001",
                 "series": "M",
                 "features": {},
             }
@@ -86,6 +92,13 @@ def test_injected_transport_wins_over_arguments_and_env(monkeypatch):
     assert robot.robot_id == "SIM_001"
 
 
+def test_bare_host_needs_no_robot_id(monkeypatch, ws_args):
+    """robot_id is optional — a plain host is a complete, working call."""
+    BonicBot("192.168.1.50")
+
+    assert ws_args == {"host": "192.168.1.50", "robot_id": None, "token": None}
+
+
 def test_env_supplies_host_and_robot_id(monkeypatch, ws_args):
     """The on-robot runner path: user code says BonicBot(), env does the rest."""
     monkeypatch.setenv("BONICOS_HOST", "127.0.0.1")
@@ -121,7 +134,7 @@ def test_host_and_robot_id_resolve_independently(monkeypatch, ws_args):
 def test_token_falls_back_to_env(monkeypatch, ws_args):
     monkeypatch.setenv("BONICOS_TOKEN", "tok-123")
 
-    BonicBot("192.168.1.50", robot_id="M1_001")
+    BonicBot("192.168.1.50")
 
     assert ws_args["token"] == "tok-123"
 
@@ -132,22 +145,9 @@ def test_empty_env_var_is_treated_as_unset(monkeypatch):
     monkeypatch.setattr("bonicos.discovery.find_robot", lambda robot_id, timeout: None)
 
     with pytest.raises(BonicConnectionError) as excinfo:
-        BonicBot(robot_id="M1_001")
-
-    assert "mDNS" in str(excinfo.value)
-
-
-def test_missing_robot_id_names_all_three_ways_to_supply_it(monkeypatch):
-    """A bare BonicBot() with nothing configured must say what to do next."""
-    monkeypatch.setenv("BONICOS_HOST", "127.0.0.1")
-
-    with pytest.raises(BonicConnectionError) as excinfo:
         BonicBot()
 
-    message = str(excinfo.value)
-    assert "robot_id" in message
-    assert "BONICOS_ROBOT_ID" in message
-    assert "discovery" in message
+    assert "mDNS" in str(excinfo.value)
 
 
 def test_no_host_anywhere_suggests_passing_one(monkeypatch):
@@ -155,11 +155,21 @@ def test_no_host_anywhere_suggests_passing_one(monkeypatch):
     monkeypatch.setattr("bonicos.discovery.find_robot", lambda robot_id, timeout: None)
 
     with pytest.raises(BonicConnectionError) as excinfo:
-        BonicBot(robot_id="M1_001")
+        BonicBot()
 
     message = str(excinfo.value)
     assert "mDNS" in message
     assert "BonicBot(" in message  # shows the caller the shape of the fix
+
+
+def test_no_host_anywhere_names_robot_id_when_one_was_given(monkeypatch):
+    """Discovery narrowed to a specific robot and still found nothing — say which."""
+    monkeypatch.setattr("bonicos.discovery.find_robot", lambda robot_id, timeout: None)
+
+    with pytest.raises(BonicConnectionError) as excinfo:
+        BonicBot(robot_id="M1_001")
+
+    assert "robot_id='M1_001'" in str(excinfo.value)
 
 
 def test_use_transport_none_restores_normal_resolution(monkeypatch):
@@ -169,4 +179,4 @@ def test_use_transport_none_restores_normal_resolution(monkeypatch):
     monkeypatch.setattr("bonicos.discovery.find_robot", lambda robot_id, timeout: None)
 
     with pytest.raises(BonicConnectionError):
-        BonicBot(robot_id="M1_001")
+        BonicBot()

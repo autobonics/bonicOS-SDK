@@ -19,13 +19,15 @@ message shapes are transport-identical.
 
 ## 1. Transport & connection
 
-- **Endpoint:** `ws://<host>:8080/ws?robotId=<ROBOT_ID>`
+- **Endpoint:** `ws://<host>:8080/ws`, optionally `ws://<host>:8080/ws?robotId=<ROBOT_ID>`
 - `<host>` is whoever runs the server for this model (README topology): the
   processor (`robot_app`) on **pro**, the Flutter app on **lite**. The SDK does
   not distinguish them.
-- The `robotId` query param **must** equal the server's `ROBOT_ID`, else the
-  server closes with code **4404**. This is a wrong-robot guard on a multi-robot
-  LAN, **not** authentication.
+- Reaching the WS handshake is the only mandatory gate — no authentication.
+  The `robotId` query param is **optional**: omit it and any client on the
+  LAN is accepted; supply it and it **must** equal the server's `ROBOT_ID`,
+  else the server closes with code **4404**. This is a wrong-robot guard on
+  a multi-robot LAN, **not** authentication.
 - Messages are UTF-8 JSON text frames, one JSON object per frame.
 
 ---
@@ -60,9 +62,10 @@ Every message is a flat JSON object with a `type`:
 
 ## 3. Auth handshake
 
-First message on a gating lane is `auth`; on the local WS lane the `robotId`
-query param already gated the connection, so `auth` is **accepted and ignored**
-(sent anyway for wire-compat and forward-compat with v1 proximity auth).
+First message on a gating lane is `auth`; on the local WS lane the WS
+handshake (+ optional `robotId` match) already gated the connection, so
+`auth` is **accepted and ignored** (sent anyway for wire-compat and
+forward-compat with v1 proximity auth).
 
 ```jsonc
 // client → robot

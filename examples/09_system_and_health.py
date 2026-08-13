@@ -15,11 +15,10 @@ never executed as a command.
 from bonicos import BonicBot
 
 HOST = "192.168.29.54"  # robot/tablet IP — e.g. 172.20.10.2 for the Gazebo sim
-ROBOT_ID = "M1_001"
 
 
 def main() -> None:
-    with BonicBot(HOST, robot_id=ROBOT_ID) as robot:
+    with BonicBot(HOST) as robot:
         print("health():", robot.health())
 
         # A fresh, synchronous read of {base, nav, health} — no need to wait

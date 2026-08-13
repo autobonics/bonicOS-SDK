@@ -10,11 +10,10 @@ firehose like imu/joint_states).
 from bonicos import BonicBot
 
 HOST = "192.168.29.54"  # robot/tablet IP — e.g. 172.20.10.2 for the Gazebo sim
-ROBOT_ID = "M1_001"
 
 
 def main() -> None:
-    with BonicBot(HOST, robot_id=ROBOT_ID) as robot:
+    with BonicBot(HOST) as robot:
         got_data = robot.wait_for_data(timeout=5.0)
         print(f"wait_for_data() -> {got_data}")
 

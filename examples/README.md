@@ -14,13 +14,15 @@ source .venv/bin/activate
 pip install -e ".[native]"  # native = websockets, needed off-robot/off-Pyodide
 ```
 
-Then open the script you want and edit the `HOST`/`ROBOT_ID` constants near
-the top to point at your robot:
+Then open the script you want and edit the `HOST` constant near the top to
+point at your robot:
 
 ```python
 HOST = "192.168.29.54"  # robot/tablet IP — e.g. 172.20.10.2 for the Gazebo sim
-ROBOT_ID = "M1_001"
 ```
+
+On a LAN with more than one robot, pass `robot_id="M1_001"` to `BonicBot()`
+too (see API.md §1) — optional, and not needed by these examples otherwise.
 
 ```bash
 python 01_connect_and_lifecycle.py

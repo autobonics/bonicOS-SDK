@@ -167,7 +167,8 @@ ERROR_RATE_LIMITED = "rate_limited"
 ERROR_INVALID_JSON = "invalid_json"
 
 #: Close code the server uses for a robotId mismatch on the local WS lane
-#: (PROTOCOL.md §1) — a wrong-robot guard, not authentication.
+#: (PROTOCOL.md §1) — an optional wrong-robot guard, checked only when the
+#: client supplies ``robotId``; not authentication.
 CLOSE_CODE_WRONG_ROBOT = 4404
 
 # --- Servo registry — camelCase key -> snake_case URDF joint name -----------

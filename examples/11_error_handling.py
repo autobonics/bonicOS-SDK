@@ -16,13 +16,12 @@ from bonicos import (
 from bonicos import ConnectionError as BonicConnectionError
 
 HOST = "192.168.29.54"  # robot/tablet IP — e.g. 172.20.10.2 for the Gazebo sim
-ROBOT_ID = "M1_001"
 
 
 def demo_connection_error() -> None:
     print("\n-- ConnectionError: bad host --")
     try:
-        BonicBot("192.0.2.1", robot_id="NOPE", timeout=2.0)  # TEST-NET-1, never routes
+        BonicBot("192.0.2.1", timeout=2.0)  # TEST-NET-1, never routes
     except BonicConnectionError as exc:
         print(f"Caught ConnectionError as expected: {exc}")
 
@@ -60,7 +59,7 @@ def demo_general_pattern(robot: BonicBot) -> None:
 def main() -> None:
     demo_connection_error()
 
-    with BonicBot(HOST, robot_id=ROBOT_ID) as robot:
+    with BonicBot(HOST) as robot:
         robot.wait_for_data()
         demo_feature_unavailable(robot)
         demo_general_pattern(robot)

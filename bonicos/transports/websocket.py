@@ -35,8 +35,9 @@ from . import base
 class WebSocketTransport:
     """Talks the ``bonicos`` wire protocol over a plain WebSocket.
 
-    Connects to ``ws://<host>:<port>/ws?robotId=<robot_id>`` (PROTOCOL.md
-    §1) — the same URL shape regardless of which process hosts it
+    Connects to ``ws://<host>:<port>/ws`` (PROTOCOL.md §1), or
+    ``ws://<host>:<port>/ws?robotId=<robot_id>`` when ``robot_id`` is given —
+    the same URL shape regardless of which process hosts it
     (`bonicOS-robot-app` on Pro, the Flutter tablet app on Lite).
     """
 
@@ -44,7 +45,7 @@ class WebSocketTransport:
         self,
         host: str,
         *,
-        robot_id: str,
+        robot_id: Optional[str] = None,
         port: int = 8080,
         token: Optional[str] = None,
     ) -> None:
@@ -103,22 +104,44 @@ class WebSocketTransport:
         self._rx_thread = threading.Thread(target=self._rx_loop, daemon=True)
         self._rx_thread.start()
 
-        self.send(
-            {
-                "type": protocol.TYPE_AUTH,
-                "token": self._token,
-                "protocol_version": protocol.PROTOCOL_VERSION,
-            }
-        )
+        try:
+            self.send(
+                {
+                    "type": protocol.TYPE_AUTH,
+                    "token": self._token,
+                    "protocol_version": protocol.PROTOCOL_VERSION,
+                }
+            )
+        except RobotDisconnected:
+            # The server closed the socket before we could even send auth
+            # (e.g. an immediate robotId-mismatch close). The rx thread will
+            # shortly notice the same closure and pulse _auth_event, so fall
+            # through to the same close-code handling below instead of
+            # raising here.
+            pass
 
         if not self._auth_event.wait(timeout):
             self.close()
-            if self._closed_code == protocol.CLOSE_CODE_WRONG_ROBOT:
+            raise BonicConnectionError("timed out waiting for auth_result")
+
+        if not self._auth_result:
+            # _auth_event is also pulsed by _rx_loop's finally block on any
+            # disconnect, so reaching here without a timeout can still mean
+            # the server closed the socket before ever sending auth_result
+            # (e.g. an immediate robotId-mismatch close) rather than a
+            # successful handshake — check that before trusting the empty
+            # result.
+            code = self._closed_code
+            self.close()
+            if code == protocol.CLOSE_CODE_WRONG_ROBOT:
                 raise BonicConnectionError(
                     f"server closed the connection ({protocol.CLOSE_CODE_WRONG_ROBOT}):"
                     f" robotId {self._robot_id!r} does not match this robot"
                 )
-            raise BonicConnectionError("timed out waiting for auth_result")
+            raise BonicConnectionError(
+                "connection closed before auth completed"
+                + (f" (code {code})" if code is not None else "")
+            )
 
         if self._auth_error is not None:
             raise BonicConnectionError(self._auth_error)
@@ -242,6 +265,8 @@ class WebSocketTransport:
     # --- background receive thread -----------------------------------------
 
     def _build_url(self) -> str:
+        if self._robot_id is None:
+            return f"ws://{self._host}:{self._port}/ws"
         query = urllib.parse.urlencode({"robotId": self._robot_id})
         return f"ws://{self._host}:{self._port}/ws?{query}"
 
