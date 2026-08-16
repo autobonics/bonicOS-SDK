@@ -90,8 +90,8 @@ class MotionController(ControllerBase):
         except RuntimeError:
             # No real OS threads available — Pyodide's default single-
             # threaded WASM build (the only host that ever drives
-            # SimTransport; dev/ARCHITECTURE.md §3.2's "no threads"
-            # constraint on the transport applies transitively here). The
+            # SimTransport, whose "no threads" constraint applies
+            # transitively here). The
             # keepalive exists solely to defeat a *real* robot's cmd_vel
             # deadman (PROTOCOL.md §7); SimTransport has none, so skipping it
             # changes nothing observable — the initial `_send_raw` above

@@ -1,7 +1,7 @@
 """``SimTransport`` — a fake robot with no hardware behind it.
 
 Built on :class:`~bonicos.transports.mock.MockTransport` for the id counter,
-ack handling, and telemetry dict (dev/ARCHITECTURE.md §7) — but where
+ack handling, and telemetry dict — but where
 ``MockTransport`` is a *test double* (telemetry the test sets by hand, acks
 the test scripts), this is a *physics stand-in*: ``drive`` actually
 integrates a pose, ``servo_command`` actually ramps joints toward their
@@ -10,8 +10,7 @@ the whole point — a fake-robot mode built on the real SDK instead of a
 reimplementation of it in another language is what makes sim/robot parity
 structural rather than maintained.
 
-**Two hard constraints, not style preferences (dev/ARCHITECTURE.md §3.2,
-Implementation brief Task 5):**
+**Two hard constraints, not style preferences:**
 
 1. :meth:`wait_for_update` must advance the simulation itself and return —
    one call, one tick. ``MockTransport.wait_for_update`` blocks on a
@@ -26,8 +25,7 @@ Implementation brief Task 5):**
    must import and run under Pyodide unchanged — pure Python, pure
    arithmetic.
 
-Selection is the existing host-injection seam, nothing new
-(dev/ARCHITECTURE.md §5)::
+Selection is the existing host-injection seam, nothing new::
 
     import bonicos
     from bonicos.transports.sim import SimTransport
@@ -66,7 +64,7 @@ class SimTransport(MockTransport):
 
     No Nav2, no SLAM — navigation/mapping commands ack success-shaped and do
     nothing, exactly matching the real robot's own stub convention for the
-    commands that are still stubs there (Implementation brief Task 5). A
+    commands that are still stubs there. A
     little bookkeeping (which maps have been "saved", what nav mode is
     active) makes ``save_map``/``list_maps``/``enter_navigation_mode``/etc.
     behave sensibly for a demo without simulating path planning.
@@ -98,9 +96,7 @@ class SimTransport(MockTransport):
         stub convention rather than a lite robot's hard failure.
         """
         super().__init__()
-        fitted = (
-            list(joints) if joints is not None else list(protocol.JOINT_NAME_MAP)
-        )
+        fitted = list(joints) if joints is not None else list(protocol.JOINT_NAME_MAP)
         self._auth_result = {
             "robot_id": "SIM_001",
             "series": "SIM",
@@ -149,8 +145,8 @@ class SimTransport(MockTransport):
         )
 
     # --- camera: no robot behind this transport, so no robot frames -----
-    # (Implementation brief Task 5 — the browser's camera exercises use the
-    # student's own webcam via the host, which this transport never sees.)
+    # (the browser's camera exercises use the student's own webcam via the
+    # host, which this transport never sees.)
 
     supports_camera = False
 
@@ -248,8 +244,8 @@ class SimTransport(MockTransport):
     def _start_servo_command(self, msg: dict) -> dict:
         """Begin ramping every named joint toward its target.
 
-        Preemption matches real hardware (dev/ARCHITECTURE.md §4a, verified
-        live): a joint already mid-ramp restarts from its *current
+        Preemption matches real hardware (verified live): a joint already
+        mid-ramp restarts from its *current
         interpolated position*, not from its old start or target — no jerk,
         no queueing. Unrecognized keys (typo'd joint names) are reported
         ``unknown`` and never touch ``_joint_positions``, same as the
@@ -283,7 +279,7 @@ class SimTransport(MockTransport):
         self.set_telemetry(
             protocol.EVENT_POSE, {"x": self._x, "y": self._y, "theta": self._theta}
         )
-        # Precise-motion polls `odom`, not `pose` (dev/ARCHITECTURE.md §6) —
+        # Precise-motion polls `odom`, not `pose` —
         # both are published from the same integrated pose here since this
         # transport has no separate localizer/odometry source to diverge.
         self.set_telemetry(
@@ -311,7 +307,7 @@ class SimTransport(MockTransport):
 
         Navigation/mapping commands acknowledge and otherwise do nothing —
         no Nav2, no SLAM, no `nav_status`/`plan` events — matching the real
-        robot's own stub convention (Implementation brief Task 5). Map/
+        robot's own stub convention. Map/
         nav-mode bookkeeping below is just recording what was asked for,
         not simulating planning or localization.
         """

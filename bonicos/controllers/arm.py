@@ -31,7 +31,7 @@ class ArmController(ControllerBase):
     #: Convergence tolerance for `wait=True` servo commands — the exact
     #: 0.15 rad criterion vetted end-to-end against real hardware/sim
     #: (bonicOS-m1-ros/multiTestReport.md §4), expressed in degrees since
-    #: this API boundary is degrees. dev/ARCHITECTURE.md §4a.
+    #: this API boundary is degrees.
     CONVERGENCE_TOLERANCE_DEG = 8.6  # math.degrees(0.15)
 
     #: Pacing while polling for convergence.
@@ -39,7 +39,7 @@ class ArmController(ControllerBase):
 
     #: When the caller doesn't pass an explicit `timeout`, pad generously
     #: above the nominal `duration` rather than assuming wall-clock time
-    #: matches it (dev/ARCHITECTURE.md §4a — proven necessary against Gazebo's
+    #: matches it (proven necessary against Gazebo's
     #: sub-1.0 RTF; harmless slack on real hardware, which finishes sooner).
     _DEFAULT_TIMEOUT_MIN_S = 5.0
     _DEFAULT_TIMEOUT_DURATION_MULTIPLIER = 3.0
@@ -233,8 +233,8 @@ class ArmController(ControllerBase):
         ``CONVERGENCE_TOLERANCE_DEG`` of its target, or ``timeout`` elapses.
 
         Polls ``joint_states`` telemetry rather than sleeping for the
-        commanded ``duration`` — proven necessary, not just stylistic
-        (dev/ARCHITECTURE.md §4a): a fixed sleep keyed to duration produced
+        commanded ``duration`` — proven necessary, not just stylistic:
+        a fixed sleep keyed to duration produced
         flaky, non-reproducible false failures when tested against a
         simulated backend running below realtime; polling until the
         measured position actually matches eliminated it completely.

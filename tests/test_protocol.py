@@ -43,7 +43,7 @@ def test_no_capability_tables_exist() -> None:
         "UNGATED_COMMANDS",
         "TYPE_FEATURE_UNAVAILABLE",
     ):
-        assert not hasattr(protocol, name), (
-            f"protocol.{name} is back — see PROTOCOL.md §3.1 before restoring it"
-        )
+        assert not hasattr(
+            protocol, name
+        ), f"protocol.{name} is back — see PROTOCOL.md §3.1 before restoring it"
     assert not [n for n in vars(protocol) if n.startswith("FEATURE_")]

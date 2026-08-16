@@ -1,12 +1,12 @@
-"""Closed-loop precise motion (API.md §3) — client-side, v1 (dev/ARCHITECTURE.md §4).
+"""Closed-loop precise motion (API.md §3) — client-side, v1.
 
 Ported from ``bonicbot-bridge/precisemotion.py``'s ``_drive_distance_internal``
 / ``_rotate_angle_internal`` (read odom -> compute error -> send ``drive`` ->
 repeat, distance via Euclidean delta from a captured start pose, rotation via
 signed-yaw-delta accumulation to dodge wraparound), but paced by
-``transport.wait_for_update()`` instead of a fixed ``time.sleep()`` poll, per
-dev/ARCHITECTURE.md §4's loop pseudocode. The on-robot cmd_vel deadman is the
-safety backstop for a stalled loop or dropped link (dev/ARCHITECTURE.md §4).
+``transport.wait_for_update()`` instead of a fixed ``time.sleep()`` poll. The
+on-robot cmd_vel deadman is the safety backstop for a stalled loop or dropped
+link.
 """
 
 from __future__ import annotations

@@ -15,8 +15,8 @@ def main() -> None:
     print("is_connected:", robot.is_connected())
     print("cameras:", robot.cameras or "(none)")
     # The handshake carries identity only — there is no capability map to
-    # inspect (PROTOCOL.md §3.1). What this robot can do is documented in
-    # LITE.md / API.md; send a command and the robot tells you if it can't.
+    # inspect. What this robot can do is documented in API.md; send a command
+    # and the robot tells you if it can't.
 
     robot.close()
     print("is_connected after close():", robot.is_connected())

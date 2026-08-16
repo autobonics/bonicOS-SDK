@@ -22,8 +22,8 @@ def test_set_servos_converts_degrees_to_radians(robot, transport) -> None:
 
 
 def test_move_left_arm_uses_shoulder_and_elbow_joints(robot, transport) -> None:
-    # The payload is expanded to the FULL left_arm group (ARCHITECTURE.md
-    # §4a "_fill_group") — the controller silently ignores a trajectory
+    # The payload is expanded to the FULL left_arm group ("_fill_group")
+    # — the controller silently ignores a trajectory
     # missing any of its claimed joints. Unspecified siblings default to
     # 0.0 (no telemetry available in this test) via get_servo_angles().
     robot.arm.move_left_arm(shoulder=90, elbow=-30, wait=False)
@@ -49,7 +49,7 @@ def test_open_and_close_grippers(robot, transport) -> None:
     assert servos[ServoID.LEFT_GRIPPER.value] < 0
 
 
-# --- wait=True: real completion (dev/ARCHITECTURE.md §4a) ----------------------
+# --- wait=True: real completion ----------------------
 # `wait=True` polls joint_states until the commanded joints converge — it is
 # NOT just "wait for the ack" (the ack arrives before the arm even starts
 # moving). These mirror test_precise_motion.py's background-thread-pushes-
@@ -151,7 +151,7 @@ def test_send_servo_command_all_unknown_keys_returns_true_without_waiting(
     assert time.monotonic() - start < 1.0
 
 
-# --- _fill_group: full-group-vector requirement (dev/ARCHITECTURE.md §4a) ------
+# --- _fill_group: full-group-vector requirement ------
 # left_arm/right_arm/head controllers silently ignore a command missing any
 # of their claimed joints (verified against the real M1 sim + an independent
 # ROS-level stress test, 2026-08-04) — a partial servo_command is a no-op on

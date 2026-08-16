@@ -35,7 +35,7 @@ classifiers = [
 ]
 # Ubuntu 22.04 (ROS humble's target OS — every bare-metal robot) ships
 # Python 3.10 as system python3; the run_code runner venv on those robots is
-# built with it (RUNCODE_IMPLEMENTATION.md §3). No 3.11-only syntax is used
+# built with it. No 3.11-only syntax is used
 # anywhere in this package, so >=3.11 was only ever a conservative default,
 # not a real requirement — lowered to match what actually needs to install.
 requires-python = ">=3.10"
@@ -45,8 +45,8 @@ requires-python = ">=3.10"
 # extra, on the theory that a Pyodide install shouldn't have to pull it — but
 # the browser now runs against MockTransport only (no robot behind it), so
 # nothing installs this package without needing a real transport.
-# transports/websocket.py still lazy-imports it inside connect() per
-# ARCHITECTURE.md §1; that rule is about import time, not about packaging.
+# transports/websocket.py still lazy-imports it inside connect(); that rule is
+# about import time, not about packaging.
 dependencies = [
     "websockets>=12.0",
 ]

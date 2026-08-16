@@ -98,7 +98,8 @@ release.
 > stubs — they are absent, and raise `CommandError` rather than silently doing
 > nothing. Motion, arms, display, speech, sensors and camera all work.
 > The SDK does not check capability at runtime and the robot does not advertise
-> it: **[LITE.md](./LITE.md)** is the reference for what each model supports.
+> it: **[API.md](./API.md)** is the reference for what each model supports —
+> every section carries an **On Lite** line.
 
 ---
 
@@ -129,11 +130,13 @@ failing with an import error.
 ## Documentation
 
 - **[API.md](./API.md)** — every class and method, with blocking behaviour and
-  worked examples.
-- **[LITE.md](./LITE.md)** — using the SDK with Lite robots: what they can and
-  cannot do, and how to write code that runs on both.
+  worked examples. Also the capability reference: each section's **On Lite**
+  line says what that model supports.
 - **[PROTOCOL.md](./PROTOCOL.md)** — the wire protocol, if you're writing your
   own client or working on the robot side.
+- **[examples/](./examples/)** — eleven runnable scripts, laptop or robot.
+- **[CHANGELOG.md](./CHANGELOG.md)** — what changed between releases, including
+  breaking changes and how to migrate.
 
 ## License
 

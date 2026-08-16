@@ -74,16 +74,12 @@ rules, enforced in each server's router rather than per handler:
    understands `nav_goal` but has no lidar must not use it.
 2. **State the reason, not the mechanism.** `"this robot has no navigation — no
    lidar or on-board computer"` beats `"feature_unavailable: navigation"`.
-3. **Point somewhere.** Name the doc (`LITE.md`, `API.md`) so the reader can find
-   the full capability matrix.
+3. **Point somewhere.** Name the doc (`API.md`) so the reader can find the full
+   capability matrix.
 
-> **Phase 2 — dynamic, robot-specific errors.** Today these strings are
-> hardcoded per server, and each server knows only what its *whole class* of
-> robot supports (`robot_app` ⇒ pro, the Flutter app ⇒ lite). The planned next
-> step is for each server to read a **local per-robot config file at startup**
-> — series, fitted joints, LED matrix present, IMU present, encoders — and
-> generate errors from it, so a 10-servo robot can say *"this robot has no
-> `leftWristYaw`"* rather than timing out. See §3.2.
+Today these strings are hardcoded per server, and each server knows only what
+its *whole class* of robot supports (`robot_app` ⇒ pro, the Flutter app ⇒ lite),
+so they cannot yet name a specific missing part on an individual robot.
 
 ---
 
@@ -135,71 +131,24 @@ is negotiated. An empty list means no camera. It is an enumeration, not a flag.
 no model of the robot's capabilities, performs no local gating, and never
 predicts a failure. If a robot cannot do something, it says so (§2.1).
 
-#### Why there is no `features` map
-
-Earlier revisions advertised a `features: {navigation: bool, ...}` map, and both
-the SDK and each server gated commands against it. That is removed. The reasons
-are worth recording, because the design goal it served is still correct:
-
-- **It encoded a binary as a matrix.** Every key that mattered
-  (`navigation`, `mapping`, `locations`, `session_control`, `run_code`,
-  `moveit`, `depth_camera`) was true precisely when the robot had an on-board
-  computer. It was `variant == "pro"` written a dozen times.
-- **It required three synchronized mirrors** — the Python SDK, `robot_app`, and
-  the Dart lite server — plus a completeness test to keep them honest. Mirrors
-  drift. In practice they did: the two sides disagreed on whether an *absent*
-  key meant allowed or denied.
-- **A gate can be wrong about its own hardware; missing code cannot.** The lite
-  server does not need a table to know it cannot navigate — it has no `nav_goal`
-  handler. That is a stronger correctness property, obtained by deletion.
-- **The extensibility goal is preserved.** The rule "never bake a capability
-  table into a client" was right, and it is now satisfied *maximally*: clients
-  contain no capability table at all, so a new model needs no client release.
-
 **Capability is documented, not negotiated.** The per-model matrix lives in
-[`LITE.md`](./LITE.md) and the Lite column of [`API.md`](./API.md). A person
-writing a program knows which robot they own; that is a reasonable thing to
-expect, and it is far cheaper than three mirrored tables and a test suite.
+[`API.md`](./API.md), where every section carries an **On Lite** line. A person
+writing a program knows which robot they own. There is no `features` map in the
+handshake, no client-side gate, and none should be added — a server with no
+handler for a command cannot be wrong about its own hardware the way a
+capability table can.
 
-#### Consequences to be aware of
+#### Consequences for client authors
 
-- **Failure moves from call time to round-trip time** (~35–80 ms later). Against
-  a 5 s default ack timeout this is immaterial.
+- **Failure arrives at round-trip time, not call time** (~35–80 ms later).
+  Against a 5 s default ack timeout this is immaterial.
 - **Cached readers are ambiguous.** `get_map()` on a robot with no mapping
   returns `None`, which is indistinguishable from *"nothing has arrived yet"*.
-  Documented rather than mechanised.
-- **Stub handlers (§8) become more dangerous**, because there is no
-  machine-readable signal to cross-check them against. See §8.
-
-### 3.2 Phase 2 — per-robot config, and what it will *not* change
-
-Each server currently knows only what its whole class of robot supports.
-The planned next step gives each server a **local configuration file, read once
-at startup**, describing that individual robot: series, fitted joints, LED
-matrix, IMU, encoders, cameras. Errors are then generated from it.
-
-Two constraints on that work, decided in advance:
-
-1. **The config is local. It is never read from Firebase or any network
-   source.** A robot must know what it is with no connectivity — an offline
-   robot that cannot report its own joint count is broken. Provisioning writes
-   the file; the server reads it at startup.
-2. **It does not come back into the handshake.** The server answers questions at
-   command time; it does not advertise upfront. Adding fields back to
-   `auth_result` would restore the client-side model this revision removed.
-
-`robot_app` already has the seed of this (`robot_config.yaml` → id, series,
-code), as does the lite server (fitted joints discovered from the BLE
-`RESP_BATTERY` online-servo array — local, from hardware, exactly the right
-pattern). Neither is wired to error generation yet.
-
-**Known gap until then.** Naming a joint the robot does not physically have is
-the one case that fails *silently*: `set_servos(wait=True)` waits for
-`joint_states` convergence on an actuator that will never move, and times out
-with no explanation. Two mitigations that need no server change: the timeout
-message should name the joint and ask whether it is fitted, and
-`get_servo_angles()` already returns exactly the fitted set (it is derived from
-telemetry), so it is the runtime way to discover a robot's joints today.
+- **Naming a joint the robot does not physically have fails silently** — it is
+  the one case with no error. `set_servos(wait=True)` waits for `joint_states`
+  convergence on an actuator that will never move, and times out with no
+  explanation. `get_servo_angles()` returns exactly the fitted set, so it is the
+  runtime way to discover a robot's joints.
 
 ---
 
@@ -507,14 +456,9 @@ not batch-spam acked commands; `drive` is exempt as high-rate.
 
 ## 8. Stub handler convention (server side)
 
-For every 🔌 stub command, `robot_app` ships a handler now that:
-
-1. logs at debug: `log.debug("STUB %s — no ROS path yet: %r", type, msg)`;
-2. returns a **successful-shaped** `ack` (e.g. `{ "ok": true }`, empty lists for
-   list-style commands) so SDK code and student programs run end-to-end;
-3. carries a `# TODO(m1-ros): call <expected rclpy topic/service>` marker naming
-   the exact future ROS resource (see `bonicbot-bridge` for the `/robot/*`,
-   `/vision/*`, controller topic names to target).
+For every 🔌 stub command, a server ships a handler now that returns a
+**successful-shaped** `ack` (e.g. `{ "ok": true }`, empty lists for list-style
+commands) and does nothing else, so client code runs end-to-end.
 
 This keeps the **SDK API and this protocol frozen** while the robot side catches
 up: swapping a stub for a real implementation is a server-only change, invisible
@@ -537,10 +481,9 @@ robot leaves someone watching a stationary robot while debugging correct code.
 Erroring on a pro stub breaks a program that would have started working on its
 own after a server update.
 
-> **This got riskier when `features` was removed (§3.1), and that is an accepted
-> trade.** A stub previously had a machine-readable counterpart a client could
-> cross-check; now the *only* record that `display_text` is a no-op on pro is
-> this document and [`API.md`](./API.md). Someone watching a blank LED matrix
+> **The 🔌 markers are the only record.** Since capability is never advertised
+> (§3.1), this document and [`API.md`](./API.md) are the sole place a stub is
+> distinguishable from a working command — someone watching a blank LED matrix
 > has no runtime way to tell "not implemented yet" from "my code is wrong".
 > **Keeping the 🔌 markers accurate is therefore load-bearing, not cosmetic** —
 > when a stub becomes real, updating `API.md` is part of the change.
@@ -557,19 +500,6 @@ own after a server update.
 - Bump the integer on any breaking change to a command/event shape in this file;
   additive commands/fields do **not** bump it.
 
----
-
-## 10. Command surface parity notes (for implementers)
-
-The two SDKs being replaced touch a wider surface than v1 ships. For traceability
-when later phases land:
-
-- **Deferred `/vision/*`** (YOLO/face/pose/gesture/ArUco enable/disable + result
-  topics) — in `bonicbot-bridge/vision.py`.
-- **Deferred `/robot/*` exploration** (`start_explore`, `explore/status`, …) — in
-  `bonicbot-bridge/autonomous.py`.
-- **Deferred sequences / camera capture** (speak's siblings from the app bridge)
-  — in `Bonicbot-SDKs/bonicbot` app-bridge features.
-
-None are part of the v1 wire protocol; listed so nobody assumes they were
-forgotten.
+Vision pipelines (face/pose/object detection), autonomous exploration and
+recorded sequences are **not** part of the v1 wire protocol. They are listed
+here only so nobody assumes they were forgotten.

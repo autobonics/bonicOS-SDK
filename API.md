@@ -13,7 +13,7 @@ Wire details live in [PROTOCOL.md](./PROTOCOL.md).
 > (`s1-lite`, `a2-lite`) have no on-board computer, so navigation, mapping and
 > session control are **absent, not stubbed** — they raise `CommandError`
 > rather than quietly doing nothing, because no later firmware makes them work.
-> Everything else behaves as documented. Full guide: **[LITE.md](./LITE.md)**.
+> Everything else behaves as documented.
 
 > **This page is the capability reference.** The SDK does not check what your
 > robot supports and the robot does not advertise it — there is no
@@ -63,8 +63,9 @@ on your laptop and on the robot itself. It looks for a target in this order:
 
 > **There is no `robot.features`, `robot.model`, `robot.variant`, `robot.is_pro`
 > or `robot.joints`.** Capability is documented here, not advertised at runtime
-> — see [LITE.md](./LITE.md) §3. To discover which actuators a robot actually
-> has, use `get_servo_angles()` (§5), which reports exactly the fitted set.
+> — the **On Lite** line in each section is how you know in advance. To discover
+> which actuators a robot actually has, use `get_servo_angles()` (§5), which
+> reports exactly the fitted set.
 
 ### Trying it without hardware
 
@@ -172,11 +173,9 @@ Fire-and-monitor: goal methods start navigation; `wait_for_goal()` blocks on
 `nav_status`. Coordinates are map-frame meters/radians.
 
 > **On Lite: ❌ none of this section.** No lidar and no navigation stack, so
-> every method here raises `CommandError`. This is *never*, not *not yet* —
-> see [LITE.md](./LITE.md) §5.
-> This is *never*, not *not yet* — use `drive_distance()`/`rotate_angle()` (§3)
-> for relative movement instead. `get_position()` on Lite returns dead-reckoned
-> odometry, not a map pose (§8).
+> every method here raises `CommandError`. This is *never*, not *not yet* — use
+> `drive_distance()`/`rotate_angle()` (§3) for relative movement instead.
+> `get_position()` on Lite returns dead-reckoned odometry, not a map pose (§8).
 
 | Method | Blocks? | Description |
 |---|---|---|

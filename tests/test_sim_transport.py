@@ -1,4 +1,4 @@
-"""SimTransport (Implementation brief Task 5 — dev/ARCHITECTURE.md §7).
+"""SimTransport — the physics-backed fake robot.
 
 Unlike ``MockTransport``, telemetry here isn't scripted by the test — it's
 computed by real (if simplified) physics, so these tests drive the
@@ -58,8 +58,8 @@ def test_wait_for_update_returns_true_and_advances_time_single_threaded(
     sim: SimTransport,
 ) -> None:
     # No second thread anywhere in this test — SimTransport must not block
-    # on a threading.Event the way MockTransport does (dev/ARCHITECTURE.md
-    # §3.2): one call, one tick, always True, even with nothing else running.
+    # on a threading.Event the way MockTransport does: one call, one tick,
+    # always True, even with nothing else running.
     sim.send({"type": protocol.CMD_DRIVE, "linear_x": 1.0, "angular_z": 0.0})
     before = sim.read_telemetry()["odom"]["x"]
     time.sleep(0.05)
@@ -87,9 +87,9 @@ def test_servo_command_converges_and_reads_back_in_camelcase(sim: SimTransport) 
 
 
 def test_servo_ramp_is_preempted_by_a_new_target(sim: SimTransport) -> None:
-    # Mirrors the verified real-hardware behaviour (dev/ARCHITECTURE.md
-    # §4a): a command to a joint already mid-ramp restarts smoothly from
-    # its *current interpolated position*, not from 0 or the old target.
+    # Mirrors the verified real-hardware behaviour: a command to a joint
+    # already mid-ramp restarts smoothly from its *current interpolated
+    # position*, not from 0 or the old target.
     sim.send(
         {
             "type": protocol.CMD_SERVO_COMMAND,
@@ -133,13 +133,13 @@ def test_supports_camera_false_and_camera_api_raises(sim: SimTransport) -> None:
     with pytest.raises(CameraUnavailable):
         sim.start_camera(["main"])
     # Must raise, not just return None forever with no signal that there's
-    # no camera path at all (Implementation brief Task 5).
+    # no camera path at all.
     assert sim.read_frame() is None
 
 
 def test_navigation_and_mapping_ack_and_do_nothing(sim: SimTransport) -> None:
     # No Nav2/SLAM behind this transport — matches the real robot's own
-    # stub convention (Implementation brief Task 5).
+    # stub convention.
     goal_id = sim.send(
         {"type": protocol.CMD_NAV_GOAL, "x": 5.0, "y": 5.0, "theta": 0.0}
     )

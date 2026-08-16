@@ -95,16 +95,11 @@ UNACKED_COMMANDS = frozenset({CMD_DRIVE})
 
 # --- Capability: deliberately not modelled (PROTOCOL.md §3.1) ---------------
 #
-# There is no feature map here, and there must not be one. Earlier revisions
-# carried COMMAND_FEATURES/EVENT_FEATURES/UNGATED_COMMANDS plus a completeness
-# test, mirrored by both servers. That is removed: the handshake advertises
-# identity only, the SDK sends whatever it is asked to, and a robot that cannot
-# perform a command answers with an `error` whose message explains why.
-#
-# The rationale is in PROTOCOL.md §3.1. The short version: every key in that
-# map was true exactly when the robot had an on-board computer, three mirrors
-# drifted, and a server with no handler for a command cannot disagree with its
-# own hardware the way a gate can.
+# There is no feature map here, and there must not be one. The handshake
+# advertises identity only, the SDK sends whatever it is asked to, and a robot
+# that cannot perform a command answers with an `error` whose message explains
+# why. A server with no handler for a command cannot disagree with its own
+# hardware the way a capability table can.
 
 # --- Telemetry & async events (robot -> client), PROTOCOL.md §6 -------------
 
