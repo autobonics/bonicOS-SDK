@@ -1,6 +1,6 @@
 """Connect to a robot, inspect the handshake, then disconnect cleanly.
 
-Covers: BonicBot(), is_connected(), features/robot_id/series, close(), and
+Covers: BonicBot(), is_connected(), robot_id/series/cameras, close(), and
 the context-manager form that guarantees a stop on exit (API.md §1).
 """
 
@@ -13,8 +13,10 @@ def main() -> None:
     robot = BonicBot(HOST)
     print(f"Connected: robot_id={robot.robot_id!r} series={robot.series!r}")
     print("is_connected:", robot.is_connected())
-    for feature, enabled in sorted(robot.features.items()):
-        print(f"  feature {feature}: {enabled}")
+    print("cameras:", robot.cameras or "(none)")
+    # The handshake carries identity only — there is no capability map to
+    # inspect (PROTOCOL.md §3.1). What this robot can do is documented in
+    # LITE.md / API.md; send a command and the robot tells you if it can't.
 
     robot.close()
     print("is_connected after close():", robot.is_connected())

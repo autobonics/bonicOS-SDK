@@ -6,9 +6,7 @@ import time
 import pytest
 
 from bonicos import protocol
-from bonicos.exceptions import FeatureUnavailable
-
-from .conftest import FakeRobot
+from bonicos.exceptions import CommandError
 
 
 def test_health(robot, transport) -> None:
@@ -38,11 +36,15 @@ def test_restart_base_session_refused_while_moving(robot, transport) -> None:
     assert robot.system.restart_base_session() is False
 
 
-def test_restart_base_session_raises_when_feature_gated(transport) -> None:
-    robot = FakeRobot(transport, features={"session_control": False})
-    with pytest.raises(FeatureUnavailable):
+def test_restart_base_session_raises_when_robot_reports_no_session_control(
+    robot, transport
+) -> None:
+    transport.script_error(
+        protocol.CMD_RESTART_BASE_SESSION,
+        "this robot has no supervised ROS stack to restart",
+    )
+    with pytest.raises(CommandError, match="no supervised ROS stack"):
         robot.system.restart_base_session()
-    assert transport.sent == []
 
 
 def test_get_session_status(robot, transport) -> None:

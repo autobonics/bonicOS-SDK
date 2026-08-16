@@ -6,9 +6,7 @@ import zlib
 import pytest
 
 from bonicos import protocol
-from bonicos.exceptions import FeatureUnavailable
-
-from .conftest import FakeRobot
+from bonicos.exceptions import CommandError
 
 
 def test_go_to_waits_for_terminal_nav_status(robot, transport) -> None:
@@ -32,11 +30,18 @@ def test_go_to_failed_status_returns_false(robot, transport) -> None:
     assert robot.nav.go_to(1.0, 2.0) is False
 
 
-def test_go_to_raises_when_feature_gated(transport) -> None:
-    robot = FakeRobot(transport, features={"navigation": False})
-    with pytest.raises(FeatureUnavailable):
+def test_go_to_raises_when_robot_reports_no_navigation(robot, transport) -> None:
+    """A robot with no nav stack answers with an error; the SDK raises it.
+
+    The command IS sent — capability is not predicted client-side
+    (PROTOCOL.md §3.1), so the robot is what decides.
+    """
+    transport.script_error(
+        protocol.CMD_NAV_GOAL, "this robot has no navigation (no lidar)"
+    )
+    with pytest.raises(CommandError, match="no navigation"):
         robot.nav.go_to(1.0, 2.0)
-    assert transport.sent == []  # never sent — SDK-side fast fail
+    assert transport.sent[-1]["type"] == protocol.CMD_NAV_GOAL
 
 
 def test_wait_for_goal_times_out_without_terminal_status(robot, transport) -> None:
@@ -103,11 +108,14 @@ def test_enter_mapping_mode(robot, transport) -> None:
     assert robot.nav.enter_mapping_mode() is True
 
 
-def test_enter_mapping_mode_raises_when_feature_gated(transport) -> None:
-    robot = FakeRobot(transport, features={"mapping": False})
-    with pytest.raises(FeatureUnavailable):
+def test_enter_mapping_mode_raises_when_robot_reports_no_mapping(
+    robot, transport
+) -> None:
+    transport.script_error(
+        protocol.CMD_ENTER_MAPPING_MODE, "this robot has no mapping (no lidar)"
+    )
+    with pytest.raises(CommandError, match="no mapping"):
         robot.nav.enter_mapping_mode()
-    assert transport.sent == []
 
 
 def test_enter_navigation_mode_builds_payload_and_reports_failure(
@@ -121,11 +129,14 @@ def test_enter_navigation_mode_builds_payload_and_reports_failure(
     assert transport.sent[-1]["name"] == "office"
 
 
-def test_enter_navigation_mode_raises_when_feature_gated(transport) -> None:
-    robot = FakeRobot(transport, features={"navigation": False})
-    with pytest.raises(FeatureUnavailable):
+def test_enter_navigation_mode_raises_when_robot_reports_no_navigation(
+    robot, transport
+) -> None:
+    transport.script_error(
+        protocol.CMD_ENTER_NAVIGATION_MODE, "this robot has no navigation (no lidar)"
+    )
+    with pytest.raises(CommandError, match="no navigation"):
         robot.nav.enter_navigation_mode("office")
-    assert transport.sent == []
 
 
 def test_stop_nav_mode(robot, transport) -> None:

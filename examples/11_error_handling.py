@@ -1,15 +1,19 @@
 """Exceptions the SDK raises, and how to handle them (API.md §11).
 
-`FeatureUnavailable` and `RobotDisconnected` are real Python exceptions
-that surface inside your code (not error return codes) so student programs
-can `try`/`except` them like anything else. All bonicos exceptions share a
+`CommandError` and `RobotDisconnected` are real Python exceptions that
+surface inside your code (not error return codes) so student programs can
+`try`/`except` them like anything else. All bonicos exceptions share a
 `RobotError` base, so a single `except RobotError` catches all of them.
+
+Note `CommandError` also covers "this robot can't do that": capability is
+never advertised or checked client-side (PROTOCOL.md §3.1), so asking a Lite
+robot to navigate is an ordinary command error carrying the robot's own
+explanation.
 """
 
 from bonicos import (
     BonicBot,
     CommandError,
-    FeatureUnavailable,
     RobotDisconnected,
     RobotError,
 )
@@ -26,17 +30,15 @@ def demo_connection_error() -> None:
         print(f"Caught ConnectionError as expected: {exc}")
 
 
-def demo_feature_unavailable(robot: BonicBot) -> None:
-    print("\n-- FeatureUnavailable: a gated feature on this series --")
-    for feature, enabled in robot.features.items():
-        if not enabled:
-            try:
-                # Any nav call is gated the same way; go_to is representative.
-                robot.go_to(0.0, 0.0)
-            except FeatureUnavailable as exc:
-                print(f"Caught FeatureUnavailable for {feature!r}: {exc}")
-            return
-    print("Every advertised feature is enabled here — nothing to trigger.")
+def demo_unsupported_command(robot: BonicBot) -> None:
+    print("\n-- CommandError: something this robot cannot do --")
+    try:
+        # On a Lite robot (no lidar, no on-board computer) this fails; on a
+        # Pro robot it succeeds. Either way the SDK made no prediction.
+        robot.go_to(0.0, 0.0, wait=False)
+        print("This robot has navigation — no error to show.")
+    except CommandError as exc:
+        print(f"Caught CommandError: {exc}")
 
 
 def demo_general_pattern(robot: BonicBot) -> None:
@@ -61,7 +63,7 @@ def main() -> None:
 
     with BonicBot(HOST) as robot:
         robot.wait_for_data()
-        demo_feature_unavailable(robot)
+        demo_unsupported_command(robot)
         demo_general_pattern(robot)
 
 

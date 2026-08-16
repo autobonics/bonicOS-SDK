@@ -1,8 +1,14 @@
 """Shared plumbing every feature controller delegates to.
 
-Not part of the public API (see API.md for the public
-controller modules; this is the implementation detail that keeps
-ack/error/feature-gate handling from being duplicated seven times).
+Not part of the public API (see API.md for the public controller modules; this
+is the implementation detail that keeps ack/error handling from being
+duplicated seven times).
+
+**No capability checks live here, or anywhere else in the SDK** (PROTOCOL.md
+§3.1). Controllers send what they are asked to send; a robot that cannot
+perform a command answers with an ``error``, which ``_command`` raises as
+``CommandError`` carrying the server's own explanation. Do not reintroduce a
+local gate — the server is the only party that knows its own hardware.
 """
 
 from __future__ import annotations
@@ -10,7 +16,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from .. import protocol
-from ..exceptions import CommandError, FeatureUnavailable
+from ..exceptions import CommandError
 from ..transports.base import Transport
 
 if TYPE_CHECKING:
@@ -25,30 +31,25 @@ class ControllerBase:
     def _transport(self) -> Transport:
         return self._robot._transport
 
-    def _require_feature(self, feature: str) -> None:
-        """Fast, local, readable failure before sending a gated command.
-
-        The server re-gates independently — this check
-        exists only to fail closer to the call site with a clear message.
-        """
-        if not self._robot.features.get(feature, True):
-            raise FeatureUnavailable(feature)
-
     def _send(self, msg: Dict[str, Any]) -> int:
+        """Enqueue a command; returns the id used to correlate its ack."""
         return self._transport.send(msg)
 
     def _command(self, msg: Dict[str, Any], *, timeout: float = 5.0) -> dict:
-        """Send a command and block for its ack, raising on error/gating."""
+        """Send a command and block for its ack, raising on error."""
         cmd_id = self._send(msg)
         result = self._transport.wait_for_ack(cmd_id, timeout)
-        result_type = result.get("type")
-        if result_type == protocol.TYPE_ERROR:
+        if result.get("type") == protocol.TYPE_ERROR:
             raise CommandError(
                 msg.get("type", "?"), result.get("error", "unknown error")
             )
-        if result_type == protocol.TYPE_FEATURE_UNAVAILABLE:
-            raise FeatureUnavailable(str(result.get("feature") or msg.get("type", "?")))
         return result
 
     def _latest(self, event: str) -> Optional[dict]:
+        """Latest cached telemetry for ``event``, or None.
+
+        None is ambiguous on a robot that can never produce ``event`` — it
+        reads the same as "nothing has arrived yet". That is an accepted
+        consequence of not modelling capability (PROTOCOL.md §3.1).
+        """
         return self._transport.read_telemetry().get(event)

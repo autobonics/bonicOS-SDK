@@ -65,7 +65,7 @@ def ws_args(monkeypatch):
 def test_injected_transport_is_adopted_and_connected():
     """The browser path: no host, no robot_id, no socket — still works."""
     transport = MockTransport()
-    transport.set_auth_result(robot_id="SIM_001", series="M", features={"nav": True})
+    transport.set_auth_result(robot_id="SIM_001", series="M", cameras=["face"])
     bonicos.use_transport(transport)
 
     robot = BonicBot()
@@ -75,7 +75,7 @@ def test_injected_transport_is_adopted_and_connected():
     # connect() was actually called on it, not just stored.
     assert robot.robot_id == "SIM_001"
     assert robot.series == "M"
-    assert robot.features == {"nav": True}
+    assert robot.cameras == ["face"]
 
 
 def test_injected_transport_wins_over_arguments_and_env(monkeypatch):

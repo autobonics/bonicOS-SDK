@@ -27,7 +27,6 @@ class NavigationController(ControllerBase):
         wait: bool = True,
         timeout: float = 60.0,
     ) -> bool:
-        self._require_feature("navigation")
         self._command({"type": protocol.CMD_NAV_GOAL, "x": x, "y": y, "theta": theta})
         if not wait:
             return True
@@ -39,7 +38,6 @@ class NavigationController(ControllerBase):
         wait: bool = True,
         timeout: float = 60.0,
     ) -> bool:
-        self._require_feature("navigation")
         waypoints = []
         for point in points:
             x, y = point[0], point[1]
@@ -109,7 +107,6 @@ class NavigationController(ControllerBase):
 
     def enter_mapping_mode(self, timeout: float = 30.0) -> bool:
         """Tear down any navigation session and launch slam_toolbox+Nav2."""
-        self._require_feature("mapping")
         result = self._command(
             {"type": protocol.CMD_ENTER_MAPPING_MODE}, timeout=timeout
         )
@@ -119,7 +116,6 @@ class NavigationController(ControllerBase):
         """Tear down any mapping session and launch map_server+AMCL+Nav2
         localizing on the saved map ``name``. False if the map doesn't exist
         or the session fails to come up."""
-        self._require_feature("navigation")
         result = self._command(
             {"type": protocol.CMD_ENTER_NAVIGATION_MODE, "name": name}, timeout=timeout
         )

@@ -61,6 +61,19 @@ class MockTransport:
     def script_ack_for_id(self, cmd_id: int, result: dict) -> None:
         self._scripted_acks[cmd_id] = result
 
+    def script_error(self, command_type: str, reason: str) -> None:
+        """Every future ``send()`` of this type comes back as an ``error``.
+
+        This is how a robot reports that it cannot perform a command — there
+        is no capability handshake and no client-side gate (PROTOCOL.md
+        §3.1), so "this robot has no navigation" arrives exactly here, and
+        the SDK surfaces it as ``CommandError``.
+        """
+        self._default_acks[command_type] = {
+            "type": protocol.TYPE_ERROR,
+            "error": reason,
+        }
+
     def push_event(self, event: str, payload: dict) -> None:
         """Push an async event (e.g. ``nav_status``, ``llm_token``).
 

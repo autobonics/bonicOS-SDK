@@ -1,10 +1,10 @@
 """Navigation, mapping, and named locations (API.md §4).
 
 Goal methods are fire-and-monitor: they kick off Nav2 and (with
-wait=True, the default) block on `wait_for_goal()`. `navigation` is a
-series-gated feature — calling it where the series doesn't support it
-raises `FeatureUnavailable`, so check `robot.features["navigation"]`
-first (or just catch the exception, shown below).
+wait=True, the default) block on `wait_for_goal()`. Navigation needs a lidar
+and an on-board computer, so this whole file is **Pro only** — on a Lite
+robot every call here raises `CommandError` with the robot's own explanation.
+There is nothing to check first: send it and catch the error (shown below).
 
 Nav-mode session switching (added 2026-08-08): `enter_mapping_mode()` /
 `enter_navigation_mode(name)` / `stop_nav_mode()` bring up or tear down the
@@ -26,7 +26,7 @@ that way below.
 This moves the robot when navigation is available. Set HOST below before running.
 """
 
-from bonicos import BonicBot, FeatureUnavailable
+from bonicos import BonicBot, CommandError
 
 HOST = "192.168.29.54"  # robot/tablet IP — e.g. 172.20.10.2 for the Gazebo sim
 
@@ -35,15 +35,16 @@ def main() -> None:
     with BonicBot(HOST) as robot:
         robot.wait_for_data()
 
-        if not robot.features.get("navigation"):
-            print("This robot/series doesn't advertise `navigation` — skipping goals.")
-            # FeatureUnavailable is a real exception you can catch directly
-            # instead of pre-checking robot.features, if you prefer.
-            try:
-                robot.go_to(0.0, 0.0)
-            except FeatureUnavailable as exc:
-                print(f"Caught FeatureUnavailable as expected on this series: {exc}")
-        else:
+        # Probe once: on a robot without navigation this raises immediately
+        # and the message comes straight from the robot.
+        try:
+            robot.go_to(0.0, 0.0, wait=False)
+            has_nav = True
+        except CommandError as exc:
+            print(f"No navigation on this robot: {exc}")
+            has_nav = False
+
+        if has_nav:
             input(
                 "This will physically move the robot to a goal pose. "
                 "Press Enter to continue (Ctrl+C to abort)..."

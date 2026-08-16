@@ -12,20 +12,19 @@ class ConnectionError(RobotError):
 
 
 class CommandError(RobotError):
-    """The server returned an ``error`` response for a command."""
+    """The server returned an ``error`` response for a command.
+
+    This covers *"this robot cannot do that"* as well as ordinary failures.
+    Capability is not advertised or gated client-side (PROTOCOL.md §3.1), so a
+    command a robot structurally cannot perform — navigation on a lidar-less
+    robot — comes back as an ``error`` like any other, and the server's
+    ``reason`` is what explains it.
+    """
 
     def __init__(self, command: str, reason: str) -> None:
         super().__init__(f"{command}: {reason}")
         self.command = command
         self.reason = reason
-
-
-class FeatureUnavailable(RobotError):
-    """The requested feature is gated off for this robot's series."""
-
-    def __init__(self, feature: str) -> None:
-        super().__init__(f"feature not available on this robot: {feature!r}")
-        self.feature = feature
 
 
 class RobotDisconnected(RobotError):

@@ -35,14 +35,14 @@ python 01_connect_and_lifecycle.py
 | [`01_connect_and_lifecycle.py`](01_connect_and_lifecycle.py) | `BonicBot()`, `is_connected()`, `features`, `close()`, context-manager form |
 | [`02_basic_motion.py`](02_basic_motion.py) | `move_forward/backward`, `turn_left/right`, `drive()`, `stop()`, `is_moving()` |
 | [`03_precise_motion_and_queue.py`](03_precise_motion_and_queue.py) | `drive_distance`, `rotate_angle`, `drive_and_rotate`, `draw_square`, `enqueue`/`run_queue`/`clear_queue` |
-| [`04_navigation_and_mapping.py`](04_navigation_and_mapping.py) | `go_to`, `navigate_waypoints`, mapping (`start_mapping`/`save_map`/`list_maps`), `get_plan`, locations, `FeatureUnavailable` gating |
+| [`04_navigation_and_mapping.py`](04_navigation_and_mapping.py) | `go_to`, `navigate_waypoints`, mapping (`start_mapping`/`save_map`/`list_maps`), `get_plan`, locations — **Pro only**; on Lite these raise `CommandError` |
 | [`05_arms_grippers_neck.py`](05_arms_grippers_neck.py) | `set_servos`, `move_left_arm`/`move_right_arm`, grippers, neck/look, `reset_servos`, `get_servo_angles` |
 | [`06_head_expression_and_display.py`](06_head_expression_and_display.py) | `set_expression`, `look`, LED-matrix display — **all 🔌 stub in v1** |
 | [`07_speech.py`](07_speech.py) | `speak()` |
 | [`08_sensors_and_telemetry.py`](08_sensors_and_telemetry.py) | `get_position/battery/imu`, `wait_for_update` loop pattern, `subscribe()` |
 | [`09_system_and_health.py`](09_system_and_health.py) | `health()`, `ask_llm()` (safe); `reconfig_wifi`/`trigger_update` shown, not run |
 | [`10_square_patrol_routine.py`](10_square_patrol_routine.py) | A combined routine tying motion + telemetry + speech together |
-| [`11_error_handling.py`](11_error_handling.py) | `ConnectionError`, `FeatureUnavailable`, `RobotDisconnected`, `CommandError`, `RobotError` |
+| [`11_error_handling.py`](11_error_handling.py) | `ConnectionError`, `RobotDisconnected`, `CommandError`, `RobotError` |
 
 ## Safety
 

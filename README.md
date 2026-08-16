@@ -94,6 +94,12 @@ Everything else in the table above is live. Vision pipelines (face/pose/object
 detection), autonomous exploration, and recorded sequences are not in this
 release.
 
+> **On Lite robots** (`s1-lite`, `a2-lite`) navigation and mapping are not
+> stubs — they are absent, and raise `CommandError` rather than silently doing
+> nothing. Motion, arms, display, speech, sensors and camera all work.
+> The SDK does not check capability at runtime and the robot does not advertise
+> it: **[LITE.md](./LITE.md)** is the reference for what each model supports.
+
 ---
 
 ## Safety
@@ -124,6 +130,8 @@ failing with an import error.
 
 - **[API.md](./API.md)** — every class and method, with blocking behaviour and
   worked examples.
+- **[LITE.md](./LITE.md)** — using the SDK with Lite robots: what they can and
+  cannot do, and how to write code that runs on both.
 - **[PROTOCOL.md](./PROTOCOL.md)** — the wire protocol, if you're writing your
   own client or working on the robot side.
 

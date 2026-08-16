@@ -28,7 +28,6 @@ class SystemController(ControllerBase):
         while the robot is under manual drive or running a navigation goal —
         cancel/stop that first. Feature-gated on ``session_control``.
         """
-        self._require_feature("session_control")
         result = self._command(
             {"type": protocol.CMD_RESTART_BASE_SESSION}, timeout=timeout
         )

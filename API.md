@@ -9,6 +9,18 @@ Wire details live in [PROTOCOL.md](./PROTOCOL.md).
 > does nothing. Your code runs; that actuator just won't move until the robot
 > side lands. Everything else is fully functional.
 
+> **Lite robots.** Each section below carries an **On Lite** line. Lite models
+> (`s1-lite`, `a2-lite`) have no on-board computer, so navigation, mapping and
+> session control are **absent, not stubbed** — they raise `CommandError`
+> rather than quietly doing nothing, because no later firmware makes them work.
+> Everything else behaves as documented. Full guide: **[LITE.md](./LITE.md)**.
+
+> **This page is the capability reference.** The SDK does not check what your
+> robot supports and the robot does not advertise it — there is no
+> `robot.features`. You send a command; if the robot cannot do it, it replies
+> with an error explaining why. The **On Lite** lines and 🔌 markers here are
+> how you know in advance. See [PROTOCOL.md](./PROTOCOL.md) §3.1.
+
 ---
 
 ## 1. Connect & lifecycle
@@ -46,8 +58,13 @@ on your laptop and on the robot itself. It looks for a target in this order:
 | `BonicBot(host=None, *, robot_id=None, token=None, timeout=10.0)` | yes (connects) | Connect + handshake, resolving the target per the table above. `robot_id`, if given, must match the robot's own id or the connection is refused. `token` defaults to `$BONICOS_TOKEN`. Raises `ConnectionError` on failure, naming every way to supply what was missing. |
 | `robot.is_connected() -> bool` | no | Live connection state. |
 | `robot.close()` | yes | Stop the robot, close the transport. Idempotent. |
-| `robot.features -> dict[str, bool]` | no | Series feature flags from the handshake (e.g. `robot.features["navigation"]`). |
-| `robot.robot_id -> str`, `robot.series -> str` | no | From the handshake. |
+| `robot.robot_id -> str`, `robot.series -> str` | no | From the handshake. Identity, for display. |
+| `robot.cameras -> list[str]` | no | Camera names this robot streams, for `get_camera_frame(name)`. Empty means none. |
+
+> **There is no `robot.features`, `robot.model`, `robot.variant`, `robot.is_pro`
+> or `robot.joints`.** Capability is documented here, not advertised at runtime
+> — see [LITE.md](./LITE.md) §3. To discover which actuators a robot actually
+> has, use `get_servo_angles()` (§5), which reports exactly the fitted set.
 
 ### Trying it without hardware
 
@@ -67,6 +84,15 @@ calls ack and do nothing (no Nav2/SLAM is simulated), the same as their
 every method on this page works identically against `BonicBot.simulated()`
 and against a real robot.
 
+**Simulating a robot with fewer actuators.** Servo count is a build option, so
+the simulator can imitate a robot that shipped with ten joints instead of
+eighteen:
+
+```python
+robot = BonicBot.simulated(joints=["leftElbow", "rightElbow", "neckYaw"])
+print(robot.get_servo_angles().keys())   # only the three
+```
+
 > One consequence of "no Nav2 simulated" worth knowing: a goal never
 > completes, so `go_to()`/`goto_location()`/`navigate_waypoints()` (`wait=True`
 > by default) block for their full `timeout` — 60s by default — before giving
@@ -82,8 +108,8 @@ with BonicBot("192.168.1.50") as robot:
 # motors stopped, socket closed, even on exception
 ```
 
-Calling a **gated** feature raises `FeatureUnavailable`; a disconnect mid-call
-raises `RobotDisconnected`.
+Calling something this robot cannot do raises `CommandError` carrying the
+robot's own explanation; a disconnect mid-call raises `RobotDisconnected`.
 
 ---
 
@@ -91,6 +117,8 @@ raises `RobotDisconnected`.
 
 High-level wrappers over the `drive` command. `duration=None` starts the motion
 and returns immediately; a number blocks for that many seconds then stops.
+
+**On Lite:** ✅ fully available.
 
 | Method | Description |
 |---|---|
@@ -110,6 +138,12 @@ Grouped access: `robot.motion.*` (same methods).
 
 Client-side control loops over `drive` + odometry. **Blocking**
 with a timeout; the on-robot deadman backstops a stalled loop.
+
+**On Lite:** ✅ available (`precise_motion`), but **less accurate**. Lite closes
+these loops on wheel odometry alone, with no lidar or sensor fusion correcting
+it — expect noticeably more drift on carpet or with wheel slip than the same
+call on a Pro robot. Fine for "drive a square"; don't promise identical
+precision in teaching material.
 
 | Method | Description |
 |---|---|
@@ -136,6 +170,13 @@ Command queue (build a routine, then run it):
 
 Fire-and-monitor: goal methods start navigation; `wait_for_goal()` blocks on
 `nav_status`. Coordinates are map-frame meters/radians.
+
+> **On Lite: ❌ none of this section.** No lidar and no navigation stack, so
+> every method here raises `CommandError`. This is *never*, not *not yet* —
+> see [LITE.md](./LITE.md) §5.
+> This is *never*, not *not yet* — use `drive_distance()`/`rotate_angle()` (§3)
+> for relative movement instead. `get_position()` on Lite returns dead-reckoned
+> odometry, not a map pose (§8).
 
 | Method | Blocks? | Description |
 |---|---|---|
@@ -203,6 +244,12 @@ Grouped access: `robot.nav.*`.
 Built on `servo_command` (registry camelCase joints → controller groups,
 angles in **degrees** at the API boundary, converted to radians on the wire).
 
+**On Lite:** ✅ fully available. On **every** model, actuator count is a build
+option — a robot may ship 10 or 12 of the 18 below. `get_servo_angles()`
+reports exactly the fitted set, so use it to check before addressing a joint by
+name. Naming a joint the robot does not have is currently a **silent** failure:
+`set_servos(wait=True)` waits for feedback that never arrives and times out.
+
 | Method | Description |
 |---|---|
 | `robot.set_servos(angles: dict, duration=1.0, wait=True, timeout=None) -> bool` | Set multiple joints, e.g. `{"leftElbow": -30, "neckYaw": 20}`. |
@@ -255,6 +302,11 @@ Grouped access: `robot.arm.*`.
 Carried from the old BLE SDK; no ROS path yet, so these are safe no-ops until the
 robot side lands (PROTOCOL §5.5).
 
+> **On Lite: ✅ fully live — this section is more capable on Lite than on Pro.**
+> The LED matrix and head expression are driven directly, so if you're writing
+> material around expressions or the display, Lite is the stronger platform
+> today. The 🔌 markers above apply to Pro only.
+
 | Method | Description |
 |---|---|
 | `robot.set_expression(mode)` | `"normal"/"happy"/"sad"/"angry"/"surprised"/"confused"` (`HeadMode` enum). |
@@ -275,6 +327,8 @@ tablet, or the Pi's own TTS) based on model + config — the caller never picks
 (PROTOCOL §5.6). **🔌 stub on pro until the ESP-relay / on-device TTS path lands;
 fully live on lite** (the Flutter app serves and speaks directly).
 
+**On Lite:** ✅ fully live — like §6, stronger on Lite than on Pro today.
+
 | Method | Description |
 |---|---|
 | `robot.speak(text, voice=None) -> bool` | Say `text`. Blocks until accepted. |
@@ -286,6 +340,11 @@ fully live on lite** (the Flutter app serves and speaks directly).
 Telemetry is pushed continuously and cached; reads are **non-blocking** and
 return the latest value. Use `wait_for_update()` to pace loops to the real sensor
 rate.
+
+**On Lite:** ✅ available, with two differences. `get_position()` returns
+**dead-reckoned odometry** — it starts at zero and drifts, since with no map
+there is no map frame; good for relative movement, not for "where am I in the
+room". `get_imu()` depends on an IMU being fitted (a build option on Lite).
 
 | Method | Description |
 |---|---|
@@ -321,6 +380,10 @@ comes up transparently on first use. Frames are **BGR `numpy` arrays**
 (OpenCV's native layout), same shape on every transport. A multi-camera
 robot (e.g. the M1's face and docking cameras) exposes each by name.
 
+**On Lite:** ✅ available — but the camera is the **tablet's**, mounted on the
+robot's face: one camera, at face height, pointing forward. `robot.cameras`
+lists what a given robot actually has.
+
 | Method | Description |
 |---|---|
 | `robot.list_cameras() -> list[str]` | Camera names from the connect handshake. Available on any transport (informational) — frames still need a video path. |
@@ -343,6 +406,12 @@ Grouped access: `robot.camera.*`.
 ---
 
 ## 10. System
+
+**On Lite:** mixed. `health()`, `reconfig_wifi()`, `trigger_update()` and
+`ask_llm()` are ✅ available (the tablet answers them). `restart_base_session()`,
+`get_session_status()` and the grouped `system.get_base_session()` /
+`get_session_health()` are ❌ — there is no ROS stack to supervise, so
+`session_control` is false.
 
 | Method | Description |
 |---|---|
@@ -372,15 +441,19 @@ from bonicos import HeadMode, ServoID          # enums (trimmed to core)
 from bonicos import (
     RobotError,            # base
     ConnectionError,       # connect/handshake failed
-    CommandError,          # server returned `error`
-    FeatureUnavailable,    # gated-off feature for this series
+    CommandError,          # server returned `error` — including "this robot can't"
     RobotDisconnected,     # link dropped mid-call
 )
 ```
 
-`FeatureUnavailable` and `RobotDisconnected` surface as **real Python
-exceptions** inside user code (platform requirement) so student programs can
-`try/except` them.
+`CommandError` and `RobotDisconnected` surface as **real Python exceptions**
+inside user code (platform requirement) so student programs can `try/except`
+them.
+
+> **`FeatureUnavailable` no longer exists.** Capability is not advertised or
+> gated (see [PROTOCOL.md](./PROTOCOL.md) §3.1) — a robot that cannot perform a
+> command returns a normal `error`, which the SDK raises as `CommandError` with
+> the robot's own explanation attached.
 
 ---
 
@@ -404,10 +477,22 @@ but only navigation moves the robot in v1)
 
 ```python
 with BonicBot() as robot:                       # autodiscovery
-    if robot.features["navigation"]:
-        robot.goto_location("kitchen")          # blocks until arrival
+    robot.goto_location("kitchen")              # blocks until arrival — Pro only
     robot.set_expression("happy")               # no-op in v1
     robot.move_right_arm(shoulder=90, elbow=-30)
+```
+
+**One program on either model** — catch the error rather than asking the robot
+what it is:
+
+```python
+from bonicos import BonicBot, CommandError
+
+with BonicBot() as robot:
+    try:
+        robot.go_to(2.0, 3.0)          # Pro: navigates
+    except CommandError:
+        robot.drive_distance(2.0)      # Lite: dead reckoning
 ```
 
 **Running on the robot itself — identical code**

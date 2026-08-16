@@ -8,7 +8,6 @@ from .enums import HeadMode, ServoID
 from .exceptions import (
     CommandError,
     ConnectionError,
-    FeatureUnavailable,
     RobotDisconnected,
     RobotError,
 )
@@ -25,7 +24,6 @@ __all__ = [
     "RobotError",
     "ConnectionError",
     "CommandError",
-    "FeatureUnavailable",
     "RobotDisconnected",
     "PROTOCOL_VERSION",
     "__version__",

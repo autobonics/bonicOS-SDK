@@ -15,7 +15,6 @@ TYPE_AUTH = "auth"
 TYPE_AUTH_RESULT = "auth_result"
 TYPE_ACK = "ack"
 TYPE_ERROR = "error"
-TYPE_FEATURE_UNAVAILABLE = "feature_unavailable"
 
 # --- Commands (client -> robot), grouped per PROTOCOL.md §5 -----------------
 
@@ -94,6 +93,19 @@ CMD_LLM_QUERY = "llm_query"
 #: `wait_for_ack` on these.
 UNACKED_COMMANDS = frozenset({CMD_DRIVE})
 
+# --- Capability: deliberately not modelled (PROTOCOL.md §3.1) ---------------
+#
+# There is no feature map here, and there must not be one. Earlier revisions
+# carried COMMAND_FEATURES/EVENT_FEATURES/UNGATED_COMMANDS plus a completeness
+# test, mirrored by both servers. That is removed: the handshake advertises
+# identity only, the SDK sends whatever it is asked to, and a robot that cannot
+# perform a command answers with an `error` whose message explains why.
+#
+# The rationale is in PROTOCOL.md §3.1. The short version: every key in that
+# map was true exactly when the robot had an on-board computer, three mirrors
+# drifted, and a server with no handler for a command cannot disagree with its
+# own hardware the way a gate can.
+
 # --- Telemetry & async events (robot -> client), PROTOCOL.md §6 -------------
 
 EVENT_POSE = "pose"
@@ -159,6 +171,12 @@ ASYNC_EVENTS = frozenset({EVENT_NAV_STATUS, EVENT_LLM_TOKEN})
 CACHED_EVENTS = frozenset(
     {EVENT_MAP, EVENT_COSTMAP, EVENT_NAV_MODE, EVENT_BASE_SESSION, EVENT_SESSION_HEALTH}
 )
+
+# NOTE: cached-value readers (`get_map()`, `get_plan()`, `get_nav_status()`,
+# `system.get_base_session()`) return None on a robot that structurally cannot
+# produce the event, which is indistinguishable from "nothing has arrived yet".
+# That ambiguity is a known, accepted consequence of removing capability gating
+# (PROTOCOL.md §3.1) — documented rather than mechanised.
 
 # --- Errors (PROTOCOL.md §2) -------------------------------------------------
 

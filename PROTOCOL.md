@@ -53,10 +53,37 @@ Every message is a flat JSON object with a `type`:
 |---|---|---|
 | `ack` | command accepted / completed synchronously | `{ "type":"ack", "id":42, ...result }` |
 | `error` | command rejected or failed | `{ "type":"error", "id":42, "error":"<reason>" }` |
-| `feature_unavailable` | command gated off for this series | `{ "type":"feature_unavailable", "id":42, "feature":"navigation" }` |
+
+**Two response types, not three.** There is no `feature_unavailable`. A command
+this robot cannot perform is an `error` like any other failure — see §3.1 for
+why capability is not negotiated, and §2.1 for what the error must say.
 
 `error` reasons currently in use: `not_authenticated`, `rate_limited`,
 `unknown_command:<type>`, `invalid_json`, plus handler-specific strings.
+
+### 2.1 Error text is the contract
+
+Because clients do not predict what a robot can do (§3.1), **the server's error
+string is the entire user experience** for an unsupported operation. It is the
+only thing standing between a user and a robot that silently did nothing. Three
+rules, enforced in each server's router rather than per handler:
+
+1. **Never `unknown_command` for a command that exists in this document.**
+   `unknown_command` means *"I have never heard of this message type"* — it reads
+   as a version mismatch and sends people to debug the wrong layer. A robot that
+   understands `nav_goal` but has no lidar must not use it.
+2. **State the reason, not the mechanism.** `"this robot has no navigation — no
+   lidar or on-board computer"` beats `"feature_unavailable: navigation"`.
+3. **Point somewhere.** Name the doc (`LITE.md`, `API.md`) so the reader can find
+   the full capability matrix.
+
+> **Phase 2 — dynamic, robot-specific errors.** Today these strings are
+> hardcoded per server, and each server knows only what its *whole class* of
+> robot supports (`robot_app` ⇒ pro, the Flutter app ⇒ lite). The planned next
+> step is for each server to read a **local per-robot config file at startup**
+> — series, fitted joints, LED matrix present, IMU present, encoders — and
+> generate errors from it, so a 10-servo robot can say *"this robot has no
+> `leftWristYaw`"* rather than timing out. See §3.2.
 
 ---
 
@@ -74,7 +101,9 @@ forward-compat with v1 proximity auth).
 
 // robot → client
 { "type": "auth_result", "ok": true,
-  "robot_id": "M1_001", "series": "M", "features": { "navigation": true, ... } }
+  "robot_id": "M1_001",
+  "series":   "M",
+  "cameras":  ["face", "docking"] }
 ```
 
 - **v0 (current): open.** No token verification; access is gated platform-side.
@@ -82,6 +111,95 @@ forward-compat with v1 proximity auth).
 - After `auth_result` the server **replays cached `map`/`costmap`** so a client
   joining mid-session renders immediately.
 - `protocol_version` — see §9.
+
+**`auth_result` is not optional and must not be delayed.** The SDK's
+`WebSocketTransport.connect()` blocks on it before returning, so a server that
+never sends it hangs every client at connect. It is the session-start signal.
+
+### 3.1 The handshake is a session start, not a capability negotiation
+
+`auth_result` tells a client **who it is connected to**. It deliberately does
+**not** tell a client what that robot can do.
+
+| Field | Meaning | Client use |
+|---|---|---|
+| `robot_id` | this robot's id | display, wrong-robot guard |
+| `series` | `"A"` / `"S"` / `"M"` — the chassis family | display only |
+| `cameras` | ordered camera names this robot streams | `get_camera_frame(name)` |
+
+`cameras` earns its place because it is a **name set a client cannot guess** —
+`get_camera_frame("face")` needs to know that string exists before a video peer
+is negotiated. An empty list means no camera. It is an enumeration, not a flag.
+
+**Clients are optimistic: send the command, handle the error.** A client holds
+no model of the robot's capabilities, performs no local gating, and never
+predicts a failure. If a robot cannot do something, it says so (§2.1).
+
+#### Why there is no `features` map
+
+Earlier revisions advertised a `features: {navigation: bool, ...}` map, and both
+the SDK and each server gated commands against it. That is removed. The reasons
+are worth recording, because the design goal it served is still correct:
+
+- **It encoded a binary as a matrix.** Every key that mattered
+  (`navigation`, `mapping`, `locations`, `session_control`, `run_code`,
+  `moveit`, `depth_camera`) was true precisely when the robot had an on-board
+  computer. It was `variant == "pro"` written a dozen times.
+- **It required three synchronized mirrors** — the Python SDK, `robot_app`, and
+  the Dart lite server — plus a completeness test to keep them honest. Mirrors
+  drift. In practice they did: the two sides disagreed on whether an *absent*
+  key meant allowed or denied.
+- **A gate can be wrong about its own hardware; missing code cannot.** The lite
+  server does not need a table to know it cannot navigate — it has no `nav_goal`
+  handler. That is a stronger correctness property, obtained by deletion.
+- **The extensibility goal is preserved.** The rule "never bake a capability
+  table into a client" was right, and it is now satisfied *maximally*: clients
+  contain no capability table at all, so a new model needs no client release.
+
+**Capability is documented, not negotiated.** The per-model matrix lives in
+[`LITE.md`](./LITE.md) and the Lite column of [`API.md`](./API.md). A person
+writing a program knows which robot they own; that is a reasonable thing to
+expect, and it is far cheaper than three mirrored tables and a test suite.
+
+#### Consequences to be aware of
+
+- **Failure moves from call time to round-trip time** (~35–80 ms later). Against
+  a 5 s default ack timeout this is immaterial.
+- **Cached readers are ambiguous.** `get_map()` on a robot with no mapping
+  returns `None`, which is indistinguishable from *"nothing has arrived yet"*.
+  Documented rather than mechanised.
+- **Stub handlers (§8) become more dangerous**, because there is no
+  machine-readable signal to cross-check them against. See §8.
+
+### 3.2 Phase 2 — per-robot config, and what it will *not* change
+
+Each server currently knows only what its whole class of robot supports.
+The planned next step gives each server a **local configuration file, read once
+at startup**, describing that individual robot: series, fitted joints, LED
+matrix, IMU, encoders, cameras. Errors are then generated from it.
+
+Two constraints on that work, decided in advance:
+
+1. **The config is local. It is never read from Firebase or any network
+   source.** A robot must know what it is with no connectivity — an offline
+   robot that cannot report its own joint count is broken. Provisioning writes
+   the file; the server reads it at startup.
+2. **It does not come back into the handshake.** The server answers questions at
+   command time; it does not advertise upfront. Adding fields back to
+   `auth_result` would restore the client-side model this revision removed.
+
+`robot_app` already has the seed of this (`robot_config.yaml` → id, series,
+code), as does the lite server (fitted joints discovered from the BLE
+`RESP_BATTERY` online-servo array — local, from hardware, exactly the right
+pattern). Neither is wired to error generation yet.
+
+**Known gap until then.** Naming a joint the robot does not physically have is
+the one case that fails *silently*: `set_servos(wait=True)` waits for
+`joint_states` convergence on an actuator that will never move, and times out
+with no explanation. Two mitigations that need no server change: the timeout
+message should name the joint and ask whether it is fitted, and
+`get_servo_angles()` already returns exactly the fitted set (it is derived from
+telemetry), so it is the runtime way to discover a robot's joints today.
 
 ---
 
@@ -156,9 +274,11 @@ has to come up or be torn down. Typical mapping workflow:
 
 `enter_navigation_mode` returns `ok:false` if the named map doesn't exist on
 disk or the launch exits during startup — check `error` for why.
-`enter_mapping_mode`/`enter_navigation_mode` are feature-gated on
-`mapping`/`navigation` respectively (same as `start_mapping`/`nav_goal`);
-`stop_nav_mode`/`get_nav_mode` are not gated. On boot, robot_app
+All of `enter_mapping_mode` / `enter_navigation_mode` / `start_mapping` /
+`nav_goal` require a navigation stack, so a robot without one (any lite model)
+answers them with an `error` naming the reason (§2.1). `stop_nav_mode` and
+`get_nav_mode` are safe everywhere — `get_nav_mode` reports `"idle"` rather
+than failing. On boot, robot_app
 auto-resumes the last **navigation** session (not mapping — a fresh mapping
 session can't restore a partial map) if its map still exists on disk.
 
@@ -296,9 +416,10 @@ mapping/navigation too — drive, controllers, EKF, sensors, TF — not just the
 nav session on top of it. `restart_base_session` is the operator-facing
 recovery action for a wedged robot (nav down → base down → base up → nav
 back); start/stop aren't exposed separately because a bare stop leaves a
-robot recoverable only over SSH. It's feature-gated on `session_control` and
-refused (`ok:false`) while the robot is under manual drive or running a nav
-goal — cancel/stop that first, the server will not do it for you. It's also
+robot recoverable only over SSH. It requires a supervised ROS stack, so it
+exists on pro only; it is refused (`ok:false`) while the robot is under manual
+drive or running a nav goal — cancel/stop that first, the server will not do it
+for you. It's also
 **slow**: a cold Gazebo start alone is ~25s, on top of nav teardown and an
 AMCL reseed — the SDK's default timeout on this call is 120s, far above the
 5s baseline, and a WebRTC video peer will drop partway through since the
@@ -398,6 +519,31 @@ For every 🔌 stub command, `robot_app` ships a handler now that:
 This keeps the **SDK API and this protocol frozen** while the robot side catches
 up: swapping a stub for a real implementation is a server-only change, invisible
 to `bonicos` and to user code.
+
+### 8.1 Stub vs. never — the distinction is now documentation-only
+
+There are two reasons a command might not do anything, and they call for
+opposite responses:
+
+| | **Stub** (🔌) | **Never** |
+|---|---|---|
+| Means | *not yet* — the hardware exists, the wiring doesn't | *structurally absent* — there is no lidar to add |
+| Response | success-shaped `ack`, no-op | `error` with a reason (§2.1) |
+| The same program later | works untouched once the handler lands | will never work on this robot |
+| Example | `display_text` on pro | `nav_goal` on lite |
+
+Getting this backwards is costly in both directions. Acking `nav_goal` on a lite
+robot leaves someone watching a stationary robot while debugging correct code.
+Erroring on a pro stub breaks a program that would have started working on its
+own after a server update.
+
+> **This got riskier when `features` was removed (§3.1), and that is an accepted
+> trade.** A stub previously had a machine-readable counterpart a client could
+> cross-check; now the *only* record that `display_text` is a no-op on pro is
+> this document and [`API.md`](./API.md). Someone watching a blank LED matrix
+> has no runtime way to tell "not implemented yet" from "my code is wrong".
+> **Keeping the 🔌 markers accurate is therefore load-bearing, not cosmetic** —
+> when a stub becomes real, updating `API.md` is part of the change.
 
 ---
 

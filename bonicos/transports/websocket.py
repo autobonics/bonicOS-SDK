@@ -298,11 +298,7 @@ class WebSocketTransport:
             self._auth_event.set()
             return
 
-        if msg_type in (
-            protocol.TYPE_ACK,
-            protocol.TYPE_ERROR,
-            protocol.TYPE_FEATURE_UNAVAILABLE,
-        ):
+        if msg_type in (protocol.TYPE_ACK, protocol.TYPE_ERROR):
             cmd_id = msg.get("id")
             if cmd_id is not None:
                 with self._acks_lock:

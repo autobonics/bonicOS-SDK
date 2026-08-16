@@ -130,12 +130,17 @@ class BonicBot:
                 host, robot_id=robot_id, token=resolved_token
             )
 
+        # The handshake carries **identity only** — no capability data
+        # (PROTOCOL.md §3.1). Do not add `features`/`model`/`variant`/`joints`
+        # back here: the SDK holds no model of what a robot can do, and a
+        # command a robot cannot perform comes back as a CommandError with the
+        # server's own explanation.
         auth_result = self._transport.connect(timeout)
         self.robot_id: str = auth_result.get("robot_id", robot_id or "")
         self.series: str = auth_result.get("series", "")
-        self.features: Dict[str, bool] = dict(auth_result.get("features", {}) or {})
         #: Camera names this robot can stream (from the handshake). Frames come
         #: over WebRTC, which the transport sets up transparently (self.camera).
+        #: An enumeration a client cannot guess — not a capability flag.
         self.cameras: List[str] = list(auth_result.get("cameras", []) or [])
         self._connected = True
 
@@ -149,7 +154,11 @@ class BonicBot:
         self._precise = PreciseMotionController(self)
 
     @classmethod
-    def simulated(cls) -> "BonicBot":
+    def simulated(
+        cls,
+        *,
+        joints: Optional[Sequence[str]] = None,
+    ) -> "BonicBot":
         """A fake robot in one line, for trying the SDK with no hardware.
 
         Shorthand for the ``use_transport``/``BonicBot()`` dance below —
@@ -170,6 +179,20 @@ class BonicBot:
         No Nav2/SLAM is simulated; navigation and mapping calls ack and do
         nothing, the same as their stub counterparts on real firmware.
 
+        ``joints`` simulates a robot built with fewer than the full 18
+        actuators — servo count is a per-robot build option, so it is worth
+        being able to reproduce without hardware:
+
+        .. code-block:: python
+
+            robot = BonicBot.simulated(joints=["leftElbow", "neckYaw"])
+            robot.get_servo_angles().keys()   # only those two
+
+        There is no ``model`` parameter, and no simulated "lite" robot: the
+        SDK models no capability at all (PROTOCOL.md §3.1), so there is
+        nothing for a model name to select. To see what a real lite robot
+        refuses, connect to one — the message comes from the robot.
+
         The registration is sticky for the interpreter's life, like
         :func:`use_transport` generally — a later bare ``BonicBot()`` adopts
         the same fake robot rather than looking for a real one, until you
@@ -177,7 +200,7 @@ class BonicBot:
         """
         from .transports.sim import SimTransport
 
-        use_transport(SimTransport())
+        use_transport(SimTransport(joints=joints))
         return cls()
 
     # --- lifecycle (API.md §1) --------------------------------------------

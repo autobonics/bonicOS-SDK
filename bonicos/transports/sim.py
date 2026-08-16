@@ -43,7 +43,7 @@ from __future__ import annotations
 
 import math
 import time
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from .. import protocol
 from ..exceptions import CameraUnavailable
@@ -81,18 +81,37 @@ class SimTransport(MockTransport):
     _BATTERY_VOLTAGE = 12.6
     _BATTERY_SOC = 100.0
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        *,
+        joints: Optional[Sequence[str]] = None,
+    ) -> None:
+        """A fully-capable simulated robot.
+
+        ``joints`` simulates a robot built with fewer than the full 18
+        actuators — servo count is a per-robot build option, so this is a real
+        case worth being able to reproduce without hardware.
+
+        There is no ``model`` parameter: capability is not modelled anywhere in
+        the SDK (PROTOCOL.md §3.1), so there is nothing for a model name to
+        select. Navigation and mapping ack and do nothing here, matching the
+        stub convention rather than a lite robot's hard failure.
+        """
         super().__init__()
+        fitted = (
+            list(joints) if joints is not None else list(protocol.JOINT_NAME_MAP)
+        )
         self._auth_result = {
             "robot_id": "SIM_001",
             "series": "SIM",
-            # True for every feature this transport actually gates on
-            # (ControllerBase._require_feature call sites) — an empty dict
-            # would make direct `robot.features["navigation"]`-style checks
-            # (API.md §12's own worked example does exactly this) raise
-            # KeyError against the sim even though the real robot always
-            # reports these keys.
-            "features": {"navigation": True, "mapping": True, "session_control": True},
+            "cameras": [],
+        }
+        #: snake_case URDF names of the fitted joints — what `joint_states`
+        #: telemetry reports, and the set the servo ramps operate over.
+        self._fitted_urdf = {
+            protocol.JOINT_NAME_MAP[key]
+            for key in fitted
+            if key in protocol.JOINT_NAME_MAP
         }
 
         self._last_tick = time.monotonic()
@@ -108,7 +127,7 @@ class SimTransport(MockTransport):
         # --- freshly powered on. Keyed by snake_case URDF name — what a
         # --- real /joint_states reports (protocol.JOINT_NAME_MAP).
         self._joint_positions: Dict[str, float] = {
-            name: 0.0 for name in protocol.JOINT_NAME_MAP.values()
+            name: 0.0 for name in sorted(self._fitted_urdf)
         }
         self._ramps: Dict[str, _Ramp] = {}
 
@@ -235,6 +254,12 @@ class SimTransport(MockTransport):
         no queueing. Unrecognized keys (typo'd joint names) are reported
         ``unknown`` and never touch ``_joint_positions``, same as the
         server excluding them from ``servo_command``'s ack.
+
+        A joint that is *valid but not fitted* on this simulated robot is
+        reported ``unknown`` too. That is what a real server must do — a
+        server that accepted it instead would leave ``set_servos(wait=True)``
+        blocking until timeout on an actuator that will never move, since the
+        SDK only excludes ``unknown`` keys before waiting for convergence.
         """
         servos = msg.get("servos", {})
         duration = float(msg.get("duration") or self._DEFAULT_SERVO_DURATION_S)
@@ -245,7 +270,7 @@ class SimTransport(MockTransport):
         groups = set()
         for camel_key, target_rad in servos.items():
             snake_name = protocol.JOINT_NAME_MAP.get(camel_key)
-            if snake_name is None:
+            if snake_name is None or snake_name not in self._fitted_urdf:
                 unknown.append(camel_key)
                 continue
             groups.add(protocol.JOINT_GROUP_OF.get(camel_key, camel_key))

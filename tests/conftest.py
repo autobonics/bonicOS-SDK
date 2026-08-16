@@ -24,9 +24,15 @@ class FakeRobot:
     tests.
     """
 
-    def __init__(self, transport: MockTransport, features: dict | None = None) -> None:
+    def __init__(self, transport: MockTransport) -> None:
         self._transport = transport
-        self.features = features or {}
+        # Handshake-derived attributes the controllers read (robot.py). Kept
+        # in step with the real BonicBot deliberately: a double that omits
+        # them lets a controller reference an attribute no real robot has.
+        # Identity only — there is no `features`/`model`/`variant`/`joints`,
+        # because the SDK models no capability (PROTOCOL.md §3.1).
+        self.robot_id = "SIM_001"
+        self.series = "SIM"
         self.cameras: list = []
         self.motion = MotionController(self)
         self.nav = NavigationController(self)
