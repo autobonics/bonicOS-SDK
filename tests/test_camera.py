@@ -85,3 +85,38 @@ def test_websocket_transport_advertises_camera_support():
     tx = WebSocketTransport("127.0.0.1")
     assert tx.supports_camera is True
     assert tx.read_frame() is None  # nothing until start_camera
+
+
+def test_camera_controller_against_sim_transport_with_frame_provider():
+    """End-to-end through the real seam (Phase 2 / dev/SIMULATOR.md §3.6): CameraController
+    -> SimTransport, with a fake frame provider standing in for the browser's
+    OffscreenCanvas renderer (dev/SIMULATOR.md §3.6, exercised only in the browser)."""
+    from bonicos.transports.sim import SimTransport
+
+    def provider(
+        camera: str,
+        x: float,
+        y: float,
+        theta: float,
+        neck_yaw: float,
+        neck_pitch: float,
+    ):
+        return bytes([1, 2, 3] * 4), 2, 2  # 2x2 BGR
+
+    sim = SimTransport()
+    sim.set_frame_provider(provider)
+
+    cam = CameraController(Robot(sim, ["main"]))
+    assert cam.list() == ["main"]
+
+    # get_frame() starts the camera then reads immediately — the pump hasn't
+    # ticked in between, so the first call legitimately sees no frame yet,
+    # same as the real WebRTC link before its first packet arrives.
+    assert cam.get_frame() is None
+
+    sim.wait_for_update(1.0)  # pump tick — SimTransport._tick() renders
+
+    frame = cam.get_frame()
+    assert frame.shape == (2, 2, 3)
+    assert frame.dtype.name == "uint8"
+    assert frame[0, 0].tolist() == [1, 2, 3]

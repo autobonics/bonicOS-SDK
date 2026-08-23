@@ -158,6 +158,9 @@ class BonicBot:
         cls,
         *,
         joints: Optional[Sequence[str]] = None,
+        obstacles: Optional[Sequence[dict]] = None,
+        radius: Optional[float] = None,
+        cameras: Optional[Sequence[str]] = None,
     ) -> "BonicBot":
         """A fake robot in one line, for trying the SDK with no hardware.
 
@@ -176,8 +179,11 @@ class BonicBot:
         Everything past this call is completely normal ``BonicBot`` code —
         driving, arms, telemetry — there is no simulator-specific API to
         learn (``robot.py`` cannot tell this transport from a real one).
-        No Nav2/SLAM is simulated; navigation and mapping calls ack and do
-        nothing, the same as their stub counterparts on real firmware.
+        Navigation is real (if simplified): ``go_to``/``navigate_waypoints``
+        plan a path with A* and drive it with Regulated Pure Pursuit,
+        arcing around ``obstacles`` the way Nav2 does. Mapping and named
+        locations remain stubs that ack and do nothing, the same as their
+        stub counterparts on real firmware.
 
         ``joints`` simulates a robot built with fewer than the full 18
         actuators — servo count is a per-robot build option, so it is worth
@@ -187,6 +193,10 @@ class BonicBot:
 
             robot = BonicBot.simulated(joints=["leftElbow", "neckYaw"])
             robot.get_servo_angles().keys()   # only those two
+
+        ``obstacles`` are axis-aligned footprints (``{"x", "y", "sizeX",
+        "sizeY"}``, world metres) for ``go_to``/``drive`` to navigate
+        around and collide with — see :class:`~bonicos.transports.sim.SimTransport`.
 
         There is no ``model`` parameter, and no simulated "lite" robot: the
         SDK models no capability at all (PROTOCOL.md §3.1), so there is
@@ -200,7 +210,14 @@ class BonicBot:
         """
         from .transports.sim import SimTransport
 
-        use_transport(SimTransport(joints=joints))
+        # `radius`/`cameras` are omitted rather than forwarded as None so
+        # SimTransport's own defaults stay the single definition of them.
+        extra: Dict[str, Any] = {}
+        if radius is not None:
+            extra["radius"] = radius
+        if cameras is not None:
+            extra["cameras"] = cameras
+        use_transport(SimTransport(joints=joints, obstacles=obstacles, **extra))
         return cls()
 
     # --- lifecycle (API.md §1) --------------------------------------------
@@ -368,6 +385,12 @@ class BonicBot:
 
     def get_map(self) -> Optional[Dict[str, Any]]:
         return self.nav.get_map()
+
+    def get_costmap(self) -> Optional[Dict[str, Any]]:
+        return self.nav.get_costmap()
+
+    def get_plan(self) -> List[Tuple[float, float]]:
+        return self.nav.get_plan()
 
     def save_location(self, name: str) -> bool:
         return self.nav.save_location(name)
