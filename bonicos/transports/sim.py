@@ -328,6 +328,13 @@ class SimTransport(MockTransport):
         self._camera_preview_open = False
         self._frames: Dict[str, Tuple[bytes, int, int]] = {}
 
+        # --- speech (dev/SIMULATOR.md §3.7): no provider until the host installs
+        # --- one via `set_speech_provider` — same seam as the camera's
+        # --- `set_frame_provider`. No provider means `speak()` keeps the
+        # --- pre-existing silent-ack stub behaviour.
+        #: ``(text, voice) -> bool | None``
+        self._speech_provider: Optional[Callable[[str, Optional[str]], Optional[bool]]] = None
+
         self._publish_pose_and_odom()
         self._publish_joint_states()
         self.set_telemetry(
@@ -411,6 +418,36 @@ class SimTransport(MockTransport):
         ``read_frame()`` live with nothing displayed.
         """
         self._camera_preview_open = bool(is_open)
+
+    # --- speech (dev/SIMULATOR.md §3.7) -----------------------------------
+    # Same seam as the camera's `set_frame_provider` (C2: no `js` import
+    # here) — a browser host wires this to Web Speech `speechSynthesis`, a
+    # native host to whatever local TTS it has, and this module only ever
+    # calls a plain callable it was handed.
+
+    def set_speech_provider(
+        self, provider: Optional[Callable[[str, Optional[str]], Optional[bool]]]
+    ) -> None:
+        """Install a host callable invoked as ``provider(text, voice)`` for
+        every ``speak()`` call, ``voice`` being ``None`` when the caller
+        didn't pass one.
+
+        Unlike the camera, there is no hard-failure path: `SystemController
+        .speak()` (PROTOCOL.md §5.6) already acks unconditionally on a real
+        robot with no TTS route wired up yet (`command_handlers.py`'s own
+        `speak` is a stub), so a native user who never installs a provider
+        keeps getting that same silent, successful ack — installing a
+        provider is purely additive, never a new way for `speak()` to fail
+        that a program written before this seam existed didn't already
+        handle.
+
+        The provider's return value maps to the command's `ok`: `True`/
+        `False` pass through, and `None` (a fire-and-forget bridge with
+        nothing to report, e.g. a bare `speechSynthesis.speak()` call) is
+        treated as success — the same "no news is good news" default the
+        pre-existing stub always gave.
+        """
+        self._speech_provider = provider
 
     def start_camera(self, cameras: list) -> None:
         if self._frame_provider is None:
@@ -1289,10 +1326,18 @@ class SimTransport(MockTransport):
         if cmd_type == protocol.CMD_SUBSCRIBE:
             return {"ok": True, "events": list(msg.get("events", []))}
 
+        if cmd_type == protocol.CMD_SPEAK:
+            # See `set_speech_provider` for the contract. No provider ->
+            # the same silent ack this command always gave.
+            if self._speech_provider is None:
+                return {"ok": True}
+            result = self._speech_provider(msg.get("text", ""), msg.get("voice"))
+            return {"ok": True if result is None else bool(result)}
+
         # Everything else (set_initial_pose, start/stop_navigation,
         # start/stop_mapping, named locations, servo_single, head/display,
-        # speak, wifi/update, restart_base_session, ...) — a plain success
-        # ack is the right shape for a v1 stub-or-inert command on a robot
-        # with nothing physically behind it. nav_goal/navigate_through_
-        # waypoints/cancel_nav are NOT here — see `send()`.
+        # wifi/update, restart_base_session, ...) — a plain success ack is
+        # the right shape for a v1 stub-or-inert command on a robot with
+        # nothing physically behind it. nav_goal/navigate_through_waypoints/
+        # cancel_nav are NOT here — see `send()`.
         return {"ok": True}

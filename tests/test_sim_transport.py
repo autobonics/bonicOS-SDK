@@ -941,4 +941,67 @@ def test_preview_open_renders_but_read_frame_still_gated_on_start_camera(
     sim.wait_for_update(1.0)
 
     assert provider.calls == ["main"]  # rendered for the preview
+
+
+# --- speech (dev/SIMULATOR.md §3.7) --------------------------------------
+
+
+def test_speak_acks_true_with_no_provider(sim: SimTransport) -> None:
+    # Same silent-success stub `speak()` has always had — installing a
+    # provider is additive, never a new way to fail.
+    cmd_id = sim.send({"type": protocol.CMD_SPEAK, "text": "hello"})
+    ack = sim.wait_for_ack(cmd_id)
+    assert ack.get("ok") is True
+
+
+def test_speak_calls_provider_with_text_and_voice(sim: SimTransport) -> None:
+    calls = []
+
+    def provider(text, voice):
+        calls.append((text, voice))
+        return True
+
+    sim.set_speech_provider(provider)
+    cmd_id = sim.send({"type": protocol.CMD_SPEAK, "text": "hello", "voice": "en-US"})
+    ack = sim.wait_for_ack(cmd_id)
+
+    assert calls == [("hello", "en-US")]
+    assert ack.get("ok") is True
+
+
+def test_speak_provider_voice_defaults_to_none(sim: SimTransport) -> None:
+    calls = []
+    sim.set_speech_provider(lambda text, voice: calls.append((text, voice)))
+
+    cmd_id = sim.send({"type": protocol.CMD_SPEAK, "text": "hi"})
+    sim.wait_for_ack(cmd_id)
+
+    assert calls == [("hi", None)]
+
+
+def test_speak_provider_none_return_acks_true(sim: SimTransport) -> None:
+    # A fire-and-forget bridge (e.g. a bare `speechSynthesis.speak()` call)
+    # has nothing to report back — that must still read as success.
+    sim.set_speech_provider(lambda text, voice: None)
+
+    cmd_id = sim.send({"type": protocol.CMD_SPEAK, "text": "hi"})
+    ack = sim.wait_for_ack(cmd_id)
+    assert ack.get("ok") is True
+
+
+def test_speak_provider_false_return_acks_false(sim: SimTransport) -> None:
+    sim.set_speech_provider(lambda text, voice: False)
+
+    cmd_id = sim.send({"type": protocol.CMD_SPEAK, "text": "hi"})
+    ack = sim.wait_for_ack(cmd_id)
+    assert ack.get("ok") is False
+
+
+def test_set_speech_provider_none_restores_stub_behaviour(sim: SimTransport) -> None:
+    sim.set_speech_provider(lambda text, voice: False)
+    sim.set_speech_provider(None)
+
+    cmd_id = sim.send({"type": protocol.CMD_SPEAK, "text": "hi"})
+    ack = sim.wait_for_ack(cmd_id)
+    assert ack.get("ok") is True
     assert sim.read_frame() is None  # but start_camera() was never called
