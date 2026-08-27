@@ -27,10 +27,12 @@ class NavigationController(ControllerBase):
         wait: bool = True,
         timeout: float = 60.0,
     ) -> bool:
-        self._command({"type": protocol.CMD_NAV_GOAL, "x": x, "y": y, "theta": theta})
+        result = self._command(
+            {"type": protocol.CMD_NAV_GOAL, "x": x, "y": y, "theta": theta}
+        )
         if not wait:
             return True
-        return self.wait_for_goal(timeout)
+        return self.wait_for_goal(timeout, goal_id=result.get("goal_id"))
 
     def navigate_waypoints(
         self,
@@ -45,7 +47,7 @@ class NavigationController(ControllerBase):
             if len(point) > 2:
                 wp["theta"] = point[2]
             waypoints.append(wp)
-        self._command(
+        result = self._command(
             {
                 "type": protocol.CMD_NAVIGATE_THROUGH_WAYPOINTS,
                 "waypoints": waypoints,
@@ -53,22 +55,48 @@ class NavigationController(ControllerBase):
         )
         if not wait:
             return True
-        return self.wait_for_goal(timeout)
+        return self.wait_for_goal(timeout, goal_id=result.get("goal_id"))
 
     def cancel_goal(self) -> bool:
         result = self._command({"type": protocol.CMD_CANCEL_NAV})
         return bool(result.get("canceled", False))
 
-    def wait_for_goal(self, timeout: float = 30.0) -> bool:
+    def wait_for_goal(
+        self, timeout: float = 30.0, goal_id: Optional[str] = None
+    ) -> bool:
+        """Block until the active goal reaches a terminal status.
+
+        ``goal_id`` is the id the goal's own ack carried (PROTOCOL.md §5.2's
+        ``ack {goal_id}``), and the goal methods pass it automatically. It
+        matters because ``nav_status`` is *cached* telemetry that outlives
+        the goal that produced it: a robot acks a new goal immediately, but
+        the first ``navigating`` event only arrives once Nav2's action server
+        accepts it (bonicOS-robot-app ``ros/nav_client.py``). Without an id to
+        match, the second and every later ``go_to(wait=True)`` reads the
+        *previous* goal's cached ``succeeded`` and returns True instantly,
+        before the robot has moved.
+
+        An event carrying no ``goal_id`` at all still matches — a stub server
+        that never sets one is no worse off than before.
+        """
         deadline = time.monotonic() + timeout
         while True:
-            status = self.get_nav_status()
-            if status in _TERMINAL_STATUSES:
-                return status == "succeeded"
+            event = self._latest(protocol.EVENT_NAV_STATUS)
+            if event is not None and self._is_for_goal(event, goal_id):
+                status = event.get("status", "idle")
+                if status in _TERMINAL_STATUSES:
+                    return status == "succeeded"
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 return False
             self._transport.wait_for_update(min(remaining, 1.0))
+
+    @staticmethod
+    def _is_for_goal(event: dict, goal_id: Optional[str]) -> bool:
+        if goal_id is None:
+            return True
+        event_goal_id = event.get("goal_id")
+        return event_goal_id is None or str(event_goal_id) == str(goal_id)
 
     def get_nav_status(self) -> str:
         event = self._latest(protocol.EVENT_NAV_STATUS)
@@ -234,10 +262,10 @@ class NavigationController(ControllerBase):
     def goto_location(
         self, name: str, wait: bool = True, timeout: float = 60.0
     ) -> bool:
-        self._command({"type": protocol.CMD_GOTO_LOCATION, "name": name})
+        result = self._command({"type": protocol.CMD_GOTO_LOCATION, "name": name})
         if not wait:
             return True
-        return self.wait_for_goal(timeout)
+        return self.wait_for_goal(timeout, goal_id=result.get("goal_id"))
 
     def list_locations(self) -> List[str]:
         result = self._command({"type": protocol.CMD_LIST_LOCATIONS})

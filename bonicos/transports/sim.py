@@ -208,6 +208,12 @@ class SimTransport(MockTransport):
     #: (matches ``ArmController``'s SDK-side default of 1.0s).
     _DEFAULT_SERVO_DURATION_S = 1.0
 
+    #: Largest slice of wall-clock time `_integrate_drive` advances in one
+    #: go. Ticks normally arrive far faster than this and are unaffected; it
+    #: only bounds how far the base can move between two collision tests when
+    #: a caller lets a long stretch of time pass between calls.
+    _MAX_INTEGRATION_STEP_S = 0.02
+
     #: Plausible resting values — a freshly-constructed sim shouldn't look
     #: obviously fake at a glance (e.g. `0.0` battery reading as "dead").
     _BATTERY_VOLTAGE = 12.6
@@ -607,16 +613,29 @@ class SimTransport(MockTransport):
     def _integrate_drive(self, dt: float) -> None:
         if self._linear_x == 0.0 and self._angular_z == 0.0:
             return
-        nx = self._x + self._linear_x * math.cos(self._theta) * dt
-        ny = self._y + self._linear_x * math.sin(self._theta) * dt
-        if self._collides(nx, ny):
-            # Blocked: the base stops translating but may still rotate in
-            # place, which is what a real robot pinned against an obstacle
-            # does and is what lets a stuck program turn away.
-            self._linear_x = 0.0
-        else:
-            self._x, self._y = nx, ny
-        self._theta = _wrap_angle(self._theta + self._angular_z * dt)
+        # Sliced, because `dt` is however long the host went without calling
+        # us: a program is free to `drive()` and then `time.sleep(2)`, and two
+        # seconds integrated as one step is a ~0.6 m jump straight through
+        # anything in between — collisions are only tested at a step's
+        # endpoint. Slicing keeps that test dense enough that the base stops
+        # at the obstacle the way the real one does. It does not (and cannot)
+        # make the *rendered* motion smooth during a blocking sleep; that is
+        # the caller's job — see `MotionController._block_if_duration`.
+        steps = max(1, int(math.ceil(dt / self._MAX_INTEGRATION_STEP_S)))
+        step_dt = dt / steps
+        for _ in range(steps):
+            nx = self._x + self._linear_x * math.cos(self._theta) * step_dt
+            ny = self._y + self._linear_x * math.sin(self._theta) * step_dt
+            if self._collides(nx, ny):
+                # Blocked: the base stops translating but may still rotate in
+                # place, which is what a real robot pinned against an obstacle
+                # does and is what lets a stuck program turn away.
+                self._linear_x = 0.0
+            else:
+                self._x, self._y = nx, ny
+            self._theta = _wrap_angle(self._theta + self._angular_z * step_dt)
+            if self._linear_x == 0.0 and self._angular_z == 0.0:
+                return
 
     def _collides(self, x: float, y: float) -> bool:
         """Circle-vs-OBB against the RAW footprints.
@@ -1165,9 +1184,17 @@ class SimTransport(MockTransport):
         self._publish_plan([])
 
     def _publish_nav_status(self, status: str, distance_to_goal: float) -> None:
+        # `goal_id` matches what `_start_goal`/`_start_waypoints` acked, the
+        # same correlation a real robot's nav_status carries (PROTOCOL.md
+        # §7). `wait_for_goal` needs it to tell this goal's terminal status
+        # from the previous goal's, still sitting in the telemetry cache.
         self.set_telemetry(
             protocol.EVENT_NAV_STATUS,
-            {"status": status, "distance_to_goal": distance_to_goal},
+            {
+                "status": status,
+                "distance_to_goal": distance_to_goal,
+                "goal_id": str(self._nav_goal_id),
+            },
         )
 
     def _publish_plan(self, path: List[Tuple[float, float]]) -> None:

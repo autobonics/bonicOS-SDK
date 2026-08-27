@@ -14,7 +14,7 @@ from .exceptions import (
 from .protocol import PROTOCOL_VERSION
 from .robot import BonicBot, use_transport
 
-__version__ = "0.5.1"
+__version__ = "0.5.2"
 
 __all__ = [
     "BonicBot",

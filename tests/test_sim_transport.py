@@ -1005,3 +1005,76 @@ def test_set_speech_provider_none_restores_stub_behaviour(sim: SimTransport) -> 
     ack = sim.wait_for_ack(cmd_id)
     assert ack.get("ok") is True
     assert sim.read_frame() is None  # but start_camera() was never called
+
+
+# --- timed moves in a threadless host (the Pyodide worker) -----------------
+
+
+@pytest.fixture
+def threadless(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pyodide's default single-threaded WASM build: no OS threads at all.
+
+    The Code Studio worker is the only host that ever drives `SimTransport`,
+    so this — not the threaded CPython the rest of the suite runs on — is the
+    environment a timed move actually has to be correct in. With threads,
+    `MotionController`'s keepalive happens to tick the sim as a side effect
+    and hides anything wrong with how the duration itself is waited out.
+    """
+    import threading
+
+    def no_threads(self) -> None:
+        raise RuntimeError("can't start new thread")
+
+    monkeypatch.setattr(threading.Thread, "start", no_threads)
+
+
+def test_timed_move_forward_animates_instead_of_teleporting(
+    sim: SimTransport, threadless: None
+) -> None:
+    robot = FakeRobot(sim)
+    poses = []
+    original_tick = sim._tick
+
+    def traced_tick() -> None:
+        original_tick()
+        poses.append(sim._x)  # not get_state(): that ticks, and this IS the tick
+
+    sim._tick = traced_tick  # type: ignore[method-assign]
+
+    robot.motion.move_forward(0.3, duration=0.5)
+
+    # A sleep-and-stop implementation lands the entire move in the single
+    # tick `stop()` triggers: two samples, 0.0 then the full distance. The
+    # host renders off these ticks, so that reads as a teleport on screen.
+    assert len(poses) > 10
+    assert max(b - a for a, b in zip(poses, poses[1:])) < 0.05
+    assert poses[-1] == pytest.approx(0.3 * 0.5, abs=0.02)
+
+
+def test_timed_move_forward_stops_at_a_box_it_would_have_tunnelled_through(
+    sim_with_box: SimTransport, threadless: None
+) -> None:
+    robot = FakeRobot(sim_with_box)
+
+    robot.motion.move_forward(0.5, duration=3.0)
+
+    x = sim_with_box.read_telemetry()["pose"]["x"]
+    assert x == pytest.approx(0.8 - 0.22, abs=0.02)
+    assert x < 0.8
+
+
+def test_a_long_unticked_drive_still_collides_along_the_way(
+    sim_with_box: SimTransport,
+) -> None:
+    """Even a raw `drive()` + `time.sleep()`, with no SDK help at all.
+
+    `dt` is however long the host went without calling us, and integrated as
+    one step it is a jump the collision test — which only looks at where a
+    step ends — never sees.
+    """
+    sim = sim_with_box
+    sim.send({"type": protocol.CMD_DRIVE, "linear_x": 0.5, "angular_z": 0.0})
+    time.sleep(3.0)
+    sim.send({"type": protocol.CMD_DRIVE, "linear_x": 0.0, "angular_z": 0.0})
+
+    assert sim.read_telemetry()["pose"]["x"] == pytest.approx(0.8 - 0.22, abs=0.02)

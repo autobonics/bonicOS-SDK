@@ -191,3 +191,47 @@ def test_named_locations_are_stubs_that_still_ack(robot, transport) -> None:
     transport.script_ack(protocol.CMD_LIST_LOCATIONS, {"locations": []})
     assert robot.nav.save_location("kitchen") is True
     assert robot.nav.list_locations() == []
+
+
+# --- nav_status is cached telemetry, so a goal must be told from its
+# --- predecessor by id (wait_for_goal's `goal_id`) --------------------------
+
+
+def test_second_go_to_ignores_the_previous_goals_cached_success(
+    robot, transport
+) -> None:
+    """The bug this guards: a robot acks a new goal immediately, but the
+    first `navigating` event only lands once Nav2 accepts it
+    (bonicOS-robot-app `ros/nav_client.py` emits it from the accept
+    callback). In that window `nav_status` still holds the PREVIOUS goal's
+    `succeeded`, and a `wait_for_goal` that only looks at `status` returns
+    True before the robot has moved an inch.
+    """
+    transport.push_event(
+        protocol.EVENT_NAV_STATUS, {"status": "succeeded", "goal_id": "g1"}
+    )
+    transport.script_ack(protocol.CMD_NAV_GOAL, {"goal_id": "g2"})
+
+    assert robot.nav.go_to(5.0, 5.0, timeout=0.2) is False  # times out, correctly
+
+    transport.push_event(
+        protocol.EVENT_NAV_STATUS, {"status": "succeeded", "goal_id": "g2"}
+    )
+    assert robot.nav.go_to(5.0, 5.0, timeout=0.2) is True
+
+
+def test_waypoints_run_ignores_the_previous_goals_cached_success(
+    robot, transport
+) -> None:
+    transport.push_event(
+        protocol.EVENT_NAV_STATUS, {"status": "succeeded", "goal_id": "g1"}
+    )
+    transport.script_ack(protocol.CMD_NAVIGATE_THROUGH_WAYPOINTS, {"goal_id": "g2"})
+    assert robot.nav.navigate_waypoints([(1.0, 2.0)], timeout=0.2) is False
+
+
+def test_status_without_a_goal_id_still_matches(robot, transport) -> None:
+    """A stub server that never sets `goal_id` is no worse off than before."""
+    transport.script_ack(protocol.CMD_NAV_GOAL, {"goal_id": "g2"})
+    transport.push_event(protocol.EVENT_NAV_STATUS, {"status": "succeeded"})
+    assert robot.nav.go_to(1.0, 2.0, timeout=0.2) is True

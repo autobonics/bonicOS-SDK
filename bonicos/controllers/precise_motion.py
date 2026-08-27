@@ -53,7 +53,7 @@ class PreciseMotionController(ControllerBase):
         motion = self._robot.motion
         try:
             while True:
-                if time.monotonic() >= deadline:
+                if time.monotonic() >= deadline or self._canceled():
                     return False
                 odom = self._latest(protocol.EVENT_ODOM)
                 if odom is not None:
@@ -80,7 +80,7 @@ class PreciseMotionController(ControllerBase):
         motion = self._robot.motion
         try:
             while True:
-                if time.monotonic() >= deadline:
+                if time.monotonic() >= deadline or self._canceled():
                     return False
                 odom = self._latest(protocol.EVENT_ODOM)
                 if odom is not None:
@@ -171,6 +171,20 @@ class PreciseMotionController(ControllerBase):
             self._queue_done.set()
 
     # --- internal ----------------------------------------------------------
+
+    def _canceled(self) -> bool:
+        """Has ``clear_queue()`` cancelled the queue this call is part of?
+
+        Without this the cancel flag is only read *between* queued items, so
+        ``clear_queue()``'s ``motion.stop()`` is undone by this loop's very
+        next ``motion.drive()`` — the robot pauses for one poll interval and
+        then finishes the whole leg it was told to abandon.
+
+        Gated on ``_queue_done`` so it only ever applies to a call the drain
+        made: the flag stays set after ``clear_queue()`` returns, and a
+        direct ``drive_distance()`` afterwards must not inherit it.
+        """
+        return not self._queue_done.is_set() and self._queue_cancel.is_set()
 
     def _wait_for_odom(self, timeout: float = ODOM_WAIT_TIMEOUT_S) -> Optional[dict]:
         deadline = time.monotonic() + timeout
