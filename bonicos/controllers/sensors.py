@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import math
 import time
-from typing import TYPE_CHECKING, Dict, Iterable, Optional, Tuple, Union
+from typing import TYPE_CHECKING, Any, Dict, Iterable, List, Optional, Tuple, Union
 
 from .. import protocol
 from ._base import ControllerBase
@@ -25,6 +25,9 @@ class SensorsController(ControllerBase):
     def __init__(self, robot: "BonicBot") -> None:
         super().__init__(robot)
         self._traveled_baseline: Optional[Tuple[float, float]] = None
+        #: Whether this SDK session has asked the robot to publish scans, so
+        #: get_scan() only sends the command once rather than on every read.
+        self._scan_requested = False
 
     def get_position(self) -> Dict[str, float]:
         event = self._latest(protocol.EVENT_POSE)
@@ -91,3 +94,76 @@ class SensorsController(ControllerBase):
     def subscribe(self, events: Iterable[str]) -> bool:
         result = self._command({"type": protocol.CMD_SUBSCRIBE, "events": list(events)})
         return bool(result.get("ok", False))
+
+    # --- laser scan (on-demand) --------------------------------------------
+
+    def set_scan_enabled(self, enabled: bool = True) -> bool:
+        """Ask the robot to start (or stop) publishing laser scans.
+
+        Scan is the one telemetry topic that is **off by default**: 10 Hz of
+        ~1000 ranges, each frame costing a TF lookup and a downsample, is not
+        worth carrying for an overlay nobody has open. The robot reconciles
+        the subscription across all connected clients, so turning it off here
+        only stops it if no one else wants it — and disconnecting counts as
+        turning it off, so a script that forgets doesn't leak.
+        """
+        result = self._command(
+            {"type": protocol.CMD_SET_SCAN_ENABLED, "enabled": bool(enabled)}
+        )
+        return bool(result.get("ok", False))
+
+    def get_scan(self) -> Optional[Dict[str, Any]]:
+        """Latest laser scan, or ``None`` if none has arrived yet.
+
+        ``{"origin": {"x", "y", "theta"}, "angle_min", "angle_increment",
+        "range_min", "range_max", "ranges": [...]}`` — already transformed into
+        the **map** frame, with ``origin`` the scanner's place in the map.
+        ``angle_increment`` is the effective step after downsampling, so point
+        *i* is at ``angle_min + i * angle_increment`` without knowing the
+        stride. ``None`` entries in ``ranges`` are "no return" readings.
+
+        Enables the stream on first call (like ``camera.get_frame``), so
+        expect ``None`` for the first frame or two while it starts. Two other
+        reasons this stays ``None``: the robot has no laser at all, or it is
+        not localized — scans are only emitted once the map-frame transform
+        exists, since that is the frame the payload is expressed in.
+        """
+        if not self._scan_requested:
+            self._scan_requested = True
+            self.set_scan_enabled(True)
+        return self._latest(protocol.EVENT_SCAN)
+
+    def get_scan_points(self) -> List[Tuple[float, float]]:
+        """``get_scan()`` flattened to map-frame ``(x, y)`` points. The
+        convenient form for plotting, or for "is anything in front of me".
+
+        Drops everything that isn't a real measurement: ``None`` ("no return"
+        — inf/NaN, which JSON can't carry), and readings outside
+        ``range_min``/``range_max``. Out-of-band values are not measurements
+        either, and keeping them draws a ring of noise at the sensor's limit
+        that looks exactly like a wall.
+
+        Rays are relative to the LASER frame, not the robot's — on A2 the lidar
+        sits forward of the chassis and mounted rotated 180 degrees — so points
+        are placed from ``scan["origin"]`` (the sensor's own map-frame pose,
+        which the robot resolves via TF). Using the robot's pose instead
+        mirrors the whole scan through the robot.
+        """
+        scan = self.get_scan()
+        if not scan:
+            return []
+        origin = scan.get("origin", {})
+        ox, oy = origin.get("x", 0.0), origin.get("y", 0.0)
+        base = origin.get("theta", 0.0) + scan.get("angle_min", 0.0)
+        step = scan.get("angle_increment", 0.0)
+        near = scan.get("range_min", 0.0)
+        far = scan.get("range_max", float("inf"))
+        points = []
+        for i, distance in enumerate(scan.get("ranges", [])):
+            if distance is None or distance < near or distance > far:
+                continue
+            angle = base + i * step
+            points.append(
+                (ox + distance * math.cos(angle), oy + distance * math.sin(angle))
+            )
+        return points

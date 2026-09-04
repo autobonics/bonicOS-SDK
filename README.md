@@ -70,7 +70,7 @@ hardware required.
 | **Arms & grippers** | `move_left_arm`, `move_right_arm`, `set_servos`, `set_gripper`, `set_neck`, `get_servo_angles` |
 | **Sensors** | `get_position`, `get_battery`, `get_imu`, `get_servo_angles`, `wait_for_update` |
 | **Camera** | `get_camera_frame()` → BGR numpy arrays (needs `pip install bonicos[camera]`) |
-| **System** | `speak`, `health`, `ask_llm`, session status and recovery |
+| **System** | `speak`, `health`, session status and recovery |
 
 Full reference with every signature: **[API.md](./API.md)**.
 
@@ -84,8 +84,6 @@ Some commands are accepted and silently do nothing on current robot firmware.
 Your code runs; that actuator just doesn't move. They are marked **🔌 stub** in
 [API.md](./API.md):
 
-- Named locations — `save_location`, `goto_location`, `list_locations`,
-  `delete_location`, `delete_all_locations`
 - Nav2 lifecycle — `start_navigation`, `stop_navigation`
 - `servo_single`, head expression (`head_mode`, `head_look`), and the LED
   matrix (`display_*`)

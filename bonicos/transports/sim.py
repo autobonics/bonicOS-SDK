@@ -196,11 +196,13 @@ class SimTransport(MockTransport):
 
     Navigation is real (if simplified): `nav_goal` plans a path with A*,
     smooths it, and drives it with Regulated Pure Pursuit, arcing around
-    ``obstacles`` the same way Nav2 does — see dev/SIMULATOR.md. Mapping
-    and named locations are still stubs, exactly matching the real robot's
-    own stub convention for the commands that are still stubs there. A
-    little bookkeeping (which maps have been "saved", what nav mode is
-    active) makes ``save_map``/``list_maps``/``enter_navigation_mode``/etc.
+    ``obstacles`` the same way Nav2 does — see dev/SIMULATOR.md. Named
+    locations are real too: map-scoped, and ``goto_location`` plans and drives
+    like any other goal, because the real robot has done both since 2026-08-31
+    and a sim that acked and forgot would teach a working script to fail on
+    hardware. Mapping is still a stub, matching the real robot's own stub
+    convention. A little bookkeeping (which maps have been "saved", what nav
+    mode is active) makes ``save_map``/``list_maps``/``enter_navigation_mode``
     behave sensibly for a demo without simulating SLAM.
     """
 
@@ -240,8 +242,8 @@ class SimTransport(MockTransport):
 
         There is no ``model`` parameter: capability is not modelled anywhere in
         the SDK (PROTOCOL.md §3.1), so there is nothing for a model name to
-        select. Mapping and named locations ack and do nothing here, matching
-        the stub convention rather than a lite robot's hard failure.
+        select. Mapping acks and does nothing here, matching the real
+        robot's stub convention rather than a lite robot's hard failure.
         """
         super().__init__()
         fitted = list(joints) if joints is not None else list(protocol.JOINT_NAME_MAP)
@@ -319,6 +321,10 @@ class SimTransport(MockTransport):
         self._maps: List[str] = []
         self._nav_mode = "idle"
         self._nav_map: Optional[str] = None
+        #: {map_name: {location_name: (x, y, theta)}} — map-scoped, like
+        #: robot_app's LocationStore, and dropped with their map for the same
+        #: reason (a map-frame pose means nothing without its map).
+        self._locations: Dict[str, Dict[str, Tuple[float, float, float]]] = {}
 
         # --- camera (dev/SIMULATOR.md §3.6): no provider until the host installs one via
         # --- `set_frame_provider` — a native user never does, so this stays
@@ -1088,23 +1094,31 @@ class SimTransport(MockTransport):
         goal_x, goal_y = path[-1]
         dist_to_goal = math.hypot(goal_x - self._x, goal_y - self._y)
 
-        # 1. Advance a monotonic index to the closest point ahead, so the
+        # 1. Where is the robot ON the path? A projection onto the nearest
+        # SEGMENT, not the nearest vertex — searched forward only, so the
         # robot can't latch onto an earlier segment after crossing its path.
-        idx = self._nav_path_index
-        best_idx, best_d = idx, math.hypot(
-            path[idx][0] - self._x, path[idx][1] - self._y
-        )
-        for j in range(idx, len(path)):
-            d = math.hypot(path[j][0] - self._x, path[j][1] - self._y)
-            if d < best_d:
-                best_idx, best_d = j, d
-        self._nav_path_index = best_idx
+        #
+        # Vertex-nearest was wrong, and wrong in a way that broke every goal
+        # needing a turn. A* + smoothing emits as few as TWO points for a
+        # clear run, so the index sat at 0 until the robot passed the
+        # perpendicular bisector of the whole path — and step 2 measured its
+        # lookahead from `path[0]`, pinning the carrot to one fixed world
+        # point (measured: (0.234, 0.187) for a goal at (1.0, 0.8), unchanged
+        # while the robot drove past it). The robot then orbited that point at
+        # its turning radius, ~0.24 m, and never reached the goal. On-axis
+        # goals hid it: with no heading error the orbit degenerates to a
+        # straight line and the robot arrives anyway.
+        seg_i, seg_t = self._project_onto_path()
+        self._nav_path_index = seg_i
 
-        # 2. Lookahead point, walked forward along the path by arclength.
+        # 2. Carrot: `lookahead` metres further along the path FROM THE
+        # ROBOT'S OWN PROJECTION, so it advances as the robot does. That is
+        # what makes this pure pursuit rather than a fixed-target chase, and
+        # it is why the result no longer depends on how often we are ticked.
         lookahead = _clamp(
             self._linear_x * LOOKAHEAD_GAIN, LOOKAHEAD_MIN, LOOKAHEAD_MAX
         )
-        px, py = self._lookahead_point(best_idx, lookahead)
+        px, py = self._lookahead_point(seg_i, seg_t, lookahead)
 
         # 3. Into the robot frame.
         dx, dy = px - self._x, py - self._y
@@ -1146,13 +1160,62 @@ class SimTransport(MockTransport):
         else:
             self._publish_nav_status("moving", dist_to_goal)
 
-    def _lookahead_point(self, start_idx: int, lookahead: float) -> Tuple[float, float]:
+    def _project_onto_path(self) -> Tuple[int, float]:
+        """Closest point on the path to the robot, as ``(segment index, t)``
+        with ``t`` in 0..1 along that segment.
+
+        Segment-wise rather than vertex-wise: on a two-point path the nearest
+        *vertex* is the start until the robot is past the halfway mark, which
+        is not where the robot is and made the carrot in `_pursue_path` sit
+        still. The nearest point on the polyline is.
+
+        Searched forward from `_nav_path_index` and never rewound, so a path
+        that crosses itself — or a robot pushed backwards by a collision —
+        cannot re-target a segment it has already driven.
+        """
         path = self._nav_path
-        if start_idx >= len(path) - 1:
+        if len(path) < 2:
+            return 0, 0.0
+        start = min(self._nav_path_index, len(path) - 2)
+        best_i, best_t, best_d = start, 0.0, float("inf")
+        for i in range(start, len(path) - 1):
+            ax, ay = path[i]
+            bx, by = path[i + 1]
+            vx, vy = bx - ax, by - ay
+            seg_sq = vx * vx + vy * vy
+            # Degenerate segment (duplicate points survive smoothing): the
+            # projection is the vertex itself, and dividing would blow up.
+            t = (
+                0.0
+                if seg_sq <= 1e-12
+                else _clamp(
+                    ((self._x - ax) * vx + (self._y - ay) * vy) / seg_sq, 0.0, 1.0
+                )
+            )
+            d = math.hypot(ax + vx * t - self._x, ay + vy * t - self._y)
+            if d < best_d:
+                best_i, best_t, best_d = i, t, d
+        return best_i, best_t
+
+    def _lookahead_point(
+        self, seg_i: int, seg_t: float, lookahead: float
+    ) -> Tuple[float, float]:
+        """The point ``lookahead`` metres further along the path than the
+        robot's projection at ``(seg_i, seg_t)``.
+
+        Starting from the projection rather than from ``path[seg_i]`` is the
+        whole point: it is what keeps the carrot a fixed distance *ahead of
+        the robot* as it advances, instead of anchored to a vertex the robot
+        has already passed.
+        """
+        path = self._nav_path
+        if seg_i >= len(path) - 1:
             return path[-1]
+        ax, ay = path[seg_i]
+        bx, by = path[seg_i + 1]
+        prev = (ax + (bx - ax) * seg_t, ay + (by - ay) * seg_t)
         remaining = lookahead
-        prev = path[start_idx]
-        for i in range(start_idx + 1, len(path)):
+        for i in range(seg_i + 1, len(path)):
             cur = path[i]
             seg = math.hypot(cur[0] - prev[0], cur[1] - prev[1])
             if seg >= remaining:
@@ -1206,6 +1269,109 @@ class SimTransport(MockTransport):
         )
 
     # --- navigation commands (dev/SIMULATOR.md §3.4) ---------------------------------------
+
+    # --- named locations ---------------------------------------------------
+
+    def _location_map(
+        self, msg: dict, must_be_active: bool
+    ) -> Tuple[Optional[str], Optional[str]]:
+        """(map_name, error) — mirrors robot_app's `_location_map`."""
+        active = self._nav_map if self._nav_mode == "navigating" else None
+        name = msg.get("map")
+        if not name:
+            if not active:
+                return None, (
+                    "locations belong to a map — start navigation on one "
+                    "first, or pass `map`"
+                )
+            return active, None
+        if must_be_active and name != active:
+            if active is None:
+                return None, (
+                    f"the robot is not navigating — start navigation on "
+                    f"'{name}' first"
+                )
+            return None, (
+                f"the robot is navigating on '{active}', not '{name}' — a pose "
+                f"from another map points at a different place"
+            )
+        return name, None
+
+    def _handle_location(self, cmd_type: str, msg: dict) -> dict:
+        name = str(msg.get("name", "")).strip()
+
+        if cmd_type == protocol.CMD_LIST_LOCATIONS:
+            map_name, error = self._location_map(msg, must_be_active=False)
+            if error or map_name is None:
+                return {"ok": True, "locations": [], "map": None}
+            saved = self._locations.get(map_name, {})
+            return {
+                "ok": True,
+                "map": map_name,
+                "locations": [
+                    {"name": n, "x": p[0], "y": p[1], "theta": p[2]}
+                    for n, p in sorted(saved.items())
+                ],
+            }
+
+        if cmd_type == protocol.CMD_SAVE_LOCATION:
+            if not name:
+                return {"ok": False, "error": "location name required"}
+            # Only the "save where I am" form is pinned to the loaded map;
+            # explicit coordinates are a point picked on any map.
+            here = msg.get("x") is None or msg.get("y") is None
+            map_name, error = self._location_map(msg, must_be_active=here)
+            if error or map_name is None:
+                return {"ok": False, "name": name, "error": error}
+            if here:
+                x, y, theta = self._x, self._y, self._theta
+            else:
+                x, y, theta = (
+                    float(msg["x"]),
+                    float(msg["y"]),
+                    float(msg.get("theta", 0.0)),
+                )
+            self._locations.setdefault(map_name, {})[name] = (x, y, theta)
+            return {
+                "ok": True,
+                "name": name,
+                "map": map_name,
+                "x": x,
+                "y": y,
+                "theta": theta,
+            }
+
+        map_name, error = self._location_map(
+            msg, must_be_active=(cmd_type == protocol.CMD_GOTO_LOCATION)
+        )
+        if error or map_name is None:
+            return {"ok": False, "name": name, "error": error}
+        saved = self._locations.setdefault(map_name, {})
+
+        if cmd_type == protocol.CMD_GOTO_LOCATION:
+            pose = saved.get(name)
+            if pose is None:
+                return {
+                    "ok": False,
+                    "name": name,
+                    "error": f"no location '{name}' saved on map '{map_name}'",
+                }
+            result = self._start_goal(*pose)
+            return {**result, "name": name, "map": map_name}
+
+        if cmd_type == protocol.CMD_DELETE_LOCATION:
+            if saved.pop(name, None) is None:
+                return {
+                    "ok": False,
+                    "name": name,
+                    "error": f"no location '{name}' saved on map '{map_name}'",
+                }
+            return {"ok": True, "name": name, "map": map_name}
+
+        # CMD_DELETE_ALL_LOCATIONS
+        deleted = len(saved)
+        saved.clear()
+        return {"ok": True, "map": map_name, "deleted": deleted}
 
     def _start_goal(self, x: float, y: float, theta: float) -> dict:
         path = self._plan_path((self._x, self._y), (x, y))
@@ -1275,9 +1441,9 @@ class SimTransport(MockTransport):
     def _build_ack(self, msg: dict) -> dict:
         """Success-shaped acks for the rest of the command surface.
 
-        Mapping and named-location commands acknowledge and otherwise do
-        nothing, matching the real robot's own stub convention for the
-        commands that are still stubs there — navigation is NOT a stub here
+        Mapping commands acknowledge and otherwise do nothing, matching the
+        real robot's own stub convention for the commands that are still stubs
+        there — navigation and named locations are NOT stubs here
         (see `_start_goal`/`_start_waypoints`/`_cancel_navigation`, handled
         directly in `send()`); the real `nav_goal` handler
         (`command_handlers.py:30`) runs actual Nav2, so treating it as a
@@ -1327,6 +1493,10 @@ class SimTransport(MockTransport):
             if name not in self._maps or name == self._nav_map:
                 return {"ok": False, "name": name}
             self._maps.remove(name)
+            # Locations are map-frame poses, so they die with their map — a
+            # later map reusing this name must not inherit places from a
+            # different room. Mirrors robot_app's delete_map handler.
+            self._locations.pop(name, None)
             return {"ok": True, "name": name}
         if cmd_type == protocol.CMD_LIST_MAPS:
             # Metadata dicts, not plain strings — mirrors the real server's
@@ -1334,8 +1504,20 @@ class SimTransport(MockTransport):
             # `name`-extraction is exercised against the sim too.
             return {"maps": [{"name": n, "size": 0, "modified": 0} for n in self._maps]}
 
-        if cmd_type == protocol.CMD_LIST_LOCATIONS:
-            return {"locations": []}  # 🔌 stub in v1, same as the real robot
+        # --- named locations ------------------------------------------------
+        # Live on the real robot since 2026-08-31, so they are live here too:
+        # a sim that acked and forgot would teach a working script to fail on
+        # hardware, which is the exact divergence this transport exists to
+        # prevent. Same map-scoping rule — a location is a map-frame pose, so
+        # it is stored under the map and needs one to resolve.
+        if cmd_type in (
+            protocol.CMD_SAVE_LOCATION,
+            protocol.CMD_GOTO_LOCATION,
+            protocol.CMD_LIST_LOCATIONS,
+            protocol.CMD_DELETE_LOCATION,
+            protocol.CMD_DELETE_ALL_LOCATIONS,
+        ):
+            return self._handle_location(cmd_type, msg)
 
         if cmd_type == protocol.CMD_HEALTH:
             return {"type": "health", "cpu": 0.0, "ram": 0.0, "temp": 0.0}
@@ -1362,7 +1544,7 @@ class SimTransport(MockTransport):
             return {"ok": True if result is None else bool(result)}
 
         # Everything else (set_initial_pose, start/stop_navigation,
-        # start/stop_mapping, named locations, servo_single, head/display,
+        # start/stop_mapping, servo_single, head/display,
         # wifi/update, restart_base_session, ...) — a plain success ack is
         # the right shape for a v1 stub-or-inert command on a robot with
         # nothing physically behind it. nav_goal/navigate_through_waypoints/

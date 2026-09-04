@@ -49,17 +49,33 @@ CMD_LIST_MAPS = "list_maps"
 
 #: Base ROS stack (drive/sensors/TF/controllers — the layer NavModeManager's
 #: sessions run on top of) supervision, owned by robot_app's
-#: BaseSessionManager. ``restart_base_session`` is feature-gated on
-#: ``session_control`` and refused while the robot is moving or navigating
-#: (cancel/stop first); it is slow (a cold Gazebo start is ~25s, on top of
-#: nav teardown/reseed) so the SDK uses a much longer default timeout than
-#: other commands. ``get_session_status`` is a synchronous, ungated
-#: point-in-time read of the base+nav+health state — the same information
-#: the ``base_session``/``session_health`` telemetry events push on change.
+#: BaseSessionManager. ``restart_base_session`` is refused while the robot is
+#: moving or navigating (cancel/stop first); it is slow (a cold Gazebo start
+#: is ~25s, on top of nav teardown/reseed) so the SDK uses a much longer
+#: default timeout than other commands. ``get_session_status`` is a
+#: synchronous point-in-time read of the base+nav+health state — the same
+#: information the ``base_session``/``session_health`` telemetry events push
+#: on change.
+#:
+#: ``start_base_session``/``stop_base_session`` are the separate halves, and
+#: they matter more than they look: robot_app's ``base_autostart`` now
+#: defaults to FALSE on real hardware (booting the app must not energise
+#: servos on its own), so a robot that came up with no stack has no other way
+#: in without SSH. ``stop_base_session`` carries the same moving/goal guard as
+#: restart.
 CMD_RESTART_BASE_SESSION = "restart_base_session"
+CMD_START_BASE_SESSION = "start_base_session"
+CMD_STOP_BASE_SESSION = "stop_base_session"
 CMD_GET_SESSION_STATUS = "get_session_status"
 
-#: §5.3 Named locations — all stub in v1.
+#: §5.3 Named locations — LIVE since 2026-08-31 (robot_app
+#: ``managers/location_store.py``), no longer stubs. A location is a
+#: **map-frame pose**, so every one of these resolves a map first: an explicit
+#: ``map`` field, else the map the running navigation session has loaded. The
+#: two that involve the robot rather than just the store — ``goto_location``,
+#: and ``save_location`` in its "save where I am" form — additionally require
+#: that map to be the one Nav2 currently has open, because a pose from another
+#: map is a well-formed coordinate pointing at a different room.
 CMD_SAVE_LOCATION = "save_location"
 CMD_GOTO_LOCATION = "goto_location"
 CMD_DELETE_LOCATION = "delete_location"
@@ -87,7 +103,30 @@ CMD_HEALTH = "health"
 CMD_RECONFIG_WIFI = "reconfig_wifi"
 CMD_TRIGGER_UPDATE = "trigger_update"
 CMD_SUBSCRIBE = "subscribe"
-CMD_LLM_QUERY = "llm_query"
+
+#: Cost control for the two streams that are expensive to produce and usually
+#: unwatched. Neither changes what the robot *can* do — they change what it
+#: spends CPU on while nobody is looking, which is why they are commands
+#: rather than a client-side filter.
+#:
+#: ``set_scan_enabled`` toggles the ONLY telemetry topic robot_app does not
+#: subscribe at startup (10 Hz x ~1000 ranges, each frame needing a TF lookup
+#: and a downsample). The ROS subscription is global — there is one ROS graph —
+#: but the *request* is per client and reconciled across all of them, so it
+#: also goes away when the last client that wanted it disconnects without
+#: turning it off. ``{enabled}`` -> ``ack {ok, enabled}``.
+#:
+#: ``set_camera_enabled`` idles a WebRTC video track this viewer has hidden.
+#: The robot attaches a track per camera at peer setup and cannot otherwise
+#: know the client's camera panel is closed; unwatched, that stream measured
+#: ~32% of a core on a real A2. Idling does not drop the track (every
+#: signaling lane here is one-shot offer/answer, so removing a sender would
+#: need renegotiation) — recv() just slows to a static frame a second, and
+#: re-enabling is instant. Per client and WebRTC-only: a lane with no media
+#: tracks answers ``ok: false`` rather than pretending.
+#: ``{enabled, camera?}`` -> ``ack {ok, enabled, cameras}``.
+CMD_SET_SCAN_ENABLED = "set_scan_enabled"
+CMD_SET_CAMERA_ENABLED = "set_camera_enabled"
 
 #: Commands that are never acked (high-rate) — the SDK must not
 #: `wait_for_ack` on these.
@@ -112,7 +151,21 @@ EVENT_MAP = "map"
 EVENT_COSTMAP = "costmap"
 EVENT_PLAN = "plan"
 EVENT_NAV_STATUS = "nav_status"
-EVENT_LLM_TOKEN = "llm_token"
+
+#: Downsampled laser scan, already transformed into the **map** frame:
+#: ``{"origin": {"x", "y", "theta"}, "angle_min", "angle_increment",
+#: "range_min", "range_max", "ranges": [float | None, ...]}``. ``origin`` is
+#: where the scanner is in the map, and ``angle_increment`` is the EFFECTIVE
+#: step after downsampling, so a client places point *i* without knowing the
+#: stride. ``None`` entries are inf/NaN "no return" readings (not
+#: JSON-serialisable, and a caller has to skip them either way).
+#:
+#: Two things make this unlike every other telemetry event. It is subscribed
+#: **on demand only** — see ``CMD_SET_SCAN_ENABLED``; nothing arrives until
+#: someone asks. And it is emitted only while the robot is **localized**,
+#: because the map-frame transform is what the payload is expressed in and
+#: drawing these at the origin would be worse than drawing nothing.
+EVENT_SCAN = "scan"
 
 #: Current mapping/navigation session state, pushed on every transition by
 #: NavModeManager (``{"mode": "idle"|"mapping"|"navigating", "map": str|None,
@@ -154,12 +207,13 @@ TELEMETRY_EVENTS = frozenset(
         EVENT_NAV_MODE,
         EVENT_BASE_SESSION,
         EVENT_SESSION_HEALTH,
+        EVENT_SCAN,
     }
 )
 
 #: Discrete async events, not a continuous cache — surfaced via per-topic
 #: waiters/queues (e.g. ``wait_for_goal()`` watches ``nav_status``).
-ASYNC_EVENTS = frozenset({EVENT_NAV_STATUS, EVENT_LLM_TOKEN})
+ASYNC_EVENTS = frozenset({EVENT_NAV_STATUS})
 
 #: Events replayed by the server on ``auth`` / ``subscribe`` (PROTOCOL.md
 #: §3, §5.7) since they're expensive to regenerate.
@@ -254,3 +308,49 @@ JOINT_GROUPS = {
 
 #: Reverse of JOINT_GROUPS — registry key -> its controller group.
 JOINT_GROUP_OF = {key: group for group, keys in JOINT_GROUPS.items() for key in keys}
+
+# --- What these tables are NOT: a description of the robot in front of you ---
+#
+# JOINT_NAME_MAP and JOINT_GROUPS describe the registry's MAXIMUM fitment (the
+# 18-actuator M build). They are the vocabulary, not an inventory. A given
+# robot fits a subset, and the subset is not even fixed per series:
+#
+#   - A fits 7 of the 18 (BLE ids 0, 4, 7, 8, 11, 15, 16 — shoulder pitch and
+#     elbow per arm, one gripper per side, neck yaw). No wrists, no shoulder
+#     yaw/roll, no gripper yaw, NO NECK PITCH. Cross-checked three ways:
+#     bonicOS-firmware `bonicbot_actuator_naming.md`, bonicbot-a2-ros
+#     `controllers.yaml`, and robot_app's `ROBOT_CONFIG["A"]`.
+#   - S fits 14 (adds wrist yaw, shoulder yaw/roll and neck pitch; still no
+#     gripper yaw or wrist pitch). No ROS workspace exists for it yet.
+#   - M fits all 18, which is why this table looks the way it does.
+#
+# And fitment is ultimately PER ROBOT, not per series: the ESP loads
+# `SERVO_CONFIGURED[]` and a `servo_config` limits blob from NVS at boot
+# (bonicOS-firmware `servo_control.cpp`), so two robots of the same series can
+# differ. That is precisely why there is no series->joints table in this SDK
+# and must not be one — see §3.1 on capability gating. The one honest source
+# for "what does THIS robot have" is which joints it reports in
+# `joint_states`, which is what `ArmController` fills and waits on.
+#
+# Server side, a registry joint the robot does not fit comes back in
+# `servo_command`'s `unsupported` list (distinct from `unknown`, which is not a
+# registry joint at all). Commanding one is not an error — it is dropped, and
+# reported, so a client can tell "absent" from "broken".
+
+#: Joint travel limits in DEGREES, as the narrowest range that is valid on
+#: every series — i.e. the intersection of A/S/M, not any one robot's range.
+#:
+#: Source: bonicOS-firmware `bonicbot_actuator_naming.md` + `servo_config.cpp`
+#: (compile-time per-series limits), independently confirmed against both
+#: URDFs — A2 `gripper.xacro` is [-0.785, 1.047] rad = [-45, 60]deg and M1's
+#: is [-1.047, 1.047] = [-60, 60]; M1 `head.xacro` neck yaw is +/-1.5708 =
+#: +/-90 and neck pitch +/-0.5236 = +/-30.
+#:
+#: Used for the SDK's canned poses (``open_grippers``, ``look_left``, ...) so
+#: they command something every robot can actually reach. This is NOT
+#: validation and must not become clamping of user-supplied angles: the URDF
+#: and the ESP both enforce their own limits, and a robot with a wider range
+#: should not be held to the narrowest one just because the SDK shipped a
+#: table. It exists so a canned pose isn't a guaranteed timeout.
+GRIPPER_RANGE_DEG = (-45.0, 60.0)  # A/S -45..60, M -60..60
+NECK_YAW_RANGE_DEG = (-90.0, 90.0)  # same on every series

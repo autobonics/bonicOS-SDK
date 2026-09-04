@@ -1,8 +1,7 @@
-"""System (API.md §10): health, wifi, updates, speech, on-device LLM."""
+"""System (API.md §10): health, wifi, updates, speech."""
 
 from __future__ import annotations
 
-import time
 from typing import Any, Dict, Optional
 
 from .. import protocol
@@ -17,19 +16,50 @@ class SystemController(ControllerBase):
 
     def restart_base_session(self, timeout: float = 120.0) -> bool:
         """Full cycle: nav session down, base stack down, base stack up, nav
-        session back. The operator-facing recovery action for a wedged robot
-        — start/stop aren't exposed separately because a bare stop leaves a
-        robot that can only be revived over SSH.
+        session back. The operator-facing recovery action for a wedged robot,
+        and still the one to reach for first.
 
         Slow (a cold Gazebo start alone is ~25s, plus nav teardown/AMCL
         reseed on top — worst case over a minute), hence the long default
         timeout; a WebRTC video peer will drop partway through since the
         restart takes the camera topics down with it too. Refused (``False``)
         while the robot is under manual drive or running a navigation goal —
-        cancel/stop that first. Feature-gated on ``session_control``.
+        cancel/stop that first.
         """
         result = self._command(
             {"type": protocol.CMD_RESTART_BASE_SESSION}, timeout=timeout
+        )
+        return bool(result.get("ok", False))
+
+    def start_base_session(self, timeout: float = 120.0) -> bool:
+        """Bring the base ROS stack up — drive, sensors, controllers, TF.
+
+        Needed because a real robot does **not** start its stack on boot
+        (robot_app's ``base_autostart`` defaults to false on hardware: bringing
+        the app up must not energise servos and spin motors on its own). A
+        robot that was powered on and left alone, or whose stack was stopped
+        from here, has no other way back short of SSH.
+
+        Safe to call when the stack is already up. In simulation the stack
+        normally autostarts, so this is mostly a real-robot affordance.
+        """
+        result = self._command(
+            {"type": protocol.CMD_START_BASE_SESSION}, timeout=timeout
+        )
+        return bool(result.get("ok", False))
+
+    def stop_base_session(self, timeout: float = 60.0) -> bool:
+        """Take the base ROS stack down — drive, sensors and TF all stop.
+
+        The robot stops being able to move or perceive anything until
+        ``start_base_session``. Carries the same guard as
+        ``restart_base_session`` and is refused (``False``) while the robot is
+        moving or a navigation goal is running: pulling the drive stack out
+        from under a moving robot is how AMCL died on 2026-08-09, and "stop
+        the stack" must never quietly also mean "abandon the goal".
+        """
+        result = self._command(
+            {"type": protocol.CMD_STOP_BASE_SESSION}, timeout=timeout
         )
         return bool(result.get("ok", False))
 
@@ -75,54 +105,3 @@ class SystemController(ControllerBase):
             payload["voice"] = voice
         result = self._command(payload)
         return bool(result.get("ok", False))
-
-    def ask_llm(
-        self, prompt: str, model: Optional[str] = None, timeout: float = 60.0
-    ) -> str:
-        """On-device LLM. **Display only** — never executed as a command.
-
-        Blocks and returns the full text; tokens stream internally
-        (PROTOCOL.md §5.7 ``llm_query`` -> a stream of ``llm_token`` events
-        carrying this command's id).
-        """
-        payload: Dict[str, object] = {"type": protocol.CMD_LLM_QUERY, "prompt": prompt}
-        if model is not None:
-            payload["model"] = model
-        cmd_id = self._send(payload)
-
-        drain = getattr(self._transport, "drain_events", None)
-        chunks = []
-        deadline = time.monotonic() + timeout
-        done = False
-        last_seen = None  # fallback path only: dedupe the last-value cache
-        while not done:
-            if drain is not None:
-                for event in drain(protocol.EVENT_LLM_TOKEN):
-                    if event.get("id") != cmd_id:
-                        continue
-                    chunks.append(event.get("token", ""))
-                    if event.get("done"):
-                        done = True
-            else:
-                # Transport has no per-message event log (e.g. webrtc/sim) —
-                # fall back to the last-value cache; a fast token burst may
-                # coalesce and drop intermediate chunks.
-                event = self._latest(protocol.EVENT_LLM_TOKEN)
-                if (
-                    event is not None
-                    and event is not last_seen
-                    and event.get("id") == cmd_id
-                ):
-                    last_seen = event
-                    chunks.append(event.get("token", ""))
-                    if event.get("done"):
-                        done = True
-
-            if done:
-                break
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                break
-            self._transport.wait_for_update(min(remaining, 1.0))
-
-        return "".join(chunks)

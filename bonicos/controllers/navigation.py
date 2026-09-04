@@ -253,28 +253,124 @@ class NavigationController(ControllerBase):
         data = zlib.decompress(base64.b64decode(data_b64)) if data_b64 else b""
         return {"info": info, "data": data}
 
-    # --- named locations (all 🔌 stub in v1, PROTOCOL.md §5.3) -------------
+    # --- named locations (LIVE since 2026-08-31, PROTOCOL.md §5.3) ---------
+    #
+    # A location is a pose in a MAP's coordinate frame, so it only means
+    # anything alongside the map it was recorded on. Every call here resolves a
+    # map first: `map` if you pass one, otherwise whichever map the running
+    # navigation session has loaded. Passing `map` explicitly is what lets a UI
+    # list or tidy up places saved on a map the robot is not currently using.
+    #
+    # The two calls that involve the ROBOT rather than just the store —
+    # `goto_location`, and `save_location` in its "save where I am" form —
+    # additionally require that map to be the one Nav2 has open, and are
+    # refused otherwise. This is a real guard, not bookkeeping: map-frame
+    # coordinates from a different map are perfectly well-formed numbers
+    # pointing at a different room, and nothing downstream would catch it.
+    # The robot would simply drive there.
 
-    def save_location(self, name: str) -> bool:
-        result = self._command({"type": protocol.CMD_SAVE_LOCATION, "name": name})
+    @staticmethod
+    def _with_map(payload: dict, map: Optional[str]) -> dict:
+        """Attach `map` only when the caller named one — the server falls back
+        to the active session's map on absence, not on null."""
+        if map is not None:
+            payload["map"] = map
+        return payload
+
+    def save_location(
+        self,
+        name: str,
+        x: Optional[float] = None,
+        y: Optional[float] = None,
+        theta: float = 0.0,
+        map: Optional[str] = None,
+    ) -> bool:
+        """Save a named pose on a map.
+
+        Two forms, and which one you get depends on whether you pass
+        coordinates:
+
+        - ``save_location("kitchen")`` records **where the robot is now**.
+          Requires the robot to be localized — saving "here" while AMCL has
+          not converged records a coordinate that means nothing and only fails
+          much later, when someone navigates to it. Refused (``False``) unless
+          the robot is navigating on the map being saved to.
+        - ``save_location("kitchen", x=1.2, y=3.4)`` records **a point picked
+          on the map**, which need not be the map currently loaded.
+
+        ``theta`` is the heading to arrive facing, and only applies to the
+        explicit-coordinate form (the robot's own heading is used otherwise).
+        """
+        payload: Dict[str, Any] = {"type": protocol.CMD_SAVE_LOCATION, "name": name}
+        if x is not None and y is not None:
+            payload.update({"x": x, "y": y, "theta": theta})
+        result = self._command(self._with_map(payload, map))
         return bool(result.get("ok", False))
 
     def goto_location(
-        self, name: str, wait: bool = True, timeout: float = 60.0
+        self,
+        name: str,
+        wait: bool = True,
+        timeout: float = 60.0,
+        map: Optional[str] = None,
     ) -> bool:
-        result = self._command({"type": protocol.CMD_GOTO_LOCATION, "name": name})
+        """Navigate to a saved location.
+
+        A lookup plus the normal ``nav_goal`` path, so it reports progress
+        through ``nav_status`` exactly like ``go_to``. ``False`` if the
+        location doesn't exist on the map, or if the robot isn't navigating on
+        that map — see this section's note on why that's refused rather than
+        driven.
+        """
+        result = self._command(
+            self._with_map({"type": protocol.CMD_GOTO_LOCATION, "name": name}, map)
+        )
         if not wait:
-            return True
+            return bool(result.get("ok", False))
+        if not result.get("ok", True):
+            return False
         return self.wait_for_goal(timeout, goal_id=result.get("goal_id"))
 
-    def list_locations(self) -> List[str]:
-        result = self._command({"type": protocol.CMD_LIST_LOCATIONS})
-        return list(result.get("locations", []))
+    def list_locations(self, map: Optional[str] = None) -> List[str]:
+        """Names of the locations saved on a map.
 
-    def delete_location(self, name: str) -> bool:
-        result = self._command({"type": protocol.CMD_DELETE_LOCATION, "name": name})
+        Names only — the same shape ``list_maps()`` returns, and for the same
+        reason: what a caller wants is a value they can hand straight back to
+        ``goto_location``. Use ``get_locations()`` for the coordinates.
+
+        Empty (rather than an error) when there is no map to resolve, since
+        "no navigation session, so no locations" is a legitimate answer to
+        this question and callers reasonably iterate the result.
+        """
+        return [entry["name"] for entry in self.get_locations(map)]
+
+    def get_locations(self, map: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Full location records: ``[{"name", "x", "y", "theta"}, ...]``,
+        sorted by name. The coordinates are in the map's frame."""
+        result = self._command(
+            self._with_map({"type": protocol.CMD_LIST_LOCATIONS}, map)
+        )
+        records = []
+        for entry in result.get("locations", []):
+            # Tolerate the bare-name shape the handler returned while it was a
+            # stub, so an older robot_app degrades to names instead of raising.
+            if isinstance(entry, dict):
+                records.append(entry)
+            else:
+                records.append({"name": entry, "x": 0.0, "y": 0.0, "theta": 0.0})
+        return records
+
+    def delete_location(self, name: str, map: Optional[str] = None) -> bool:
+        result = self._command(
+            self._with_map({"type": protocol.CMD_DELETE_LOCATION, "name": name}, map)
+        )
         return bool(result.get("ok", False))
 
-    def delete_all_locations(self) -> bool:
-        result = self._command({"type": protocol.CMD_DELETE_ALL_LOCATIONS})
+    def delete_all_locations(self, map: Optional[str] = None) -> bool:
+        """Forget every location on a map. Note locations are also dropped
+        automatically when their map is deleted (``delete_map``) — a later map
+        reusing the name must not inherit places from a different room."""
+        result = self._command(
+            self._with_map({"type": protocol.CMD_DELETE_ALL_LOCATIONS}, map)
+        )
         return bool(result.get("ok", False))

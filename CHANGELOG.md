@@ -4,6 +4,80 @@ All notable changes to `bonicos`. This project follows
 [Semantic Versioning](https://semver.org/); while on `0.x`, breaking changes
 bump the minor version.
 
+## [0.6.0] — 2026-09-04
+
+Catch-up with `bonicOS-robot-app`'s `dev-ma-01-unify-robot-series` merge, which
+made the A2 a first-class series alongside the M1.
+
+### Fixed
+
+- **Arm, neck and gripper commands returned `False` on A2 while working.**
+  `move_left_arm()`, `set_neck()` and `reset_servos()` expanded each command to
+  the full 18-actuator M1 joint group, then waited for every joint in it to
+  reach its target. An A2 fits 7 of those 18, and a joint that doesn't exist
+  never reports a position, so the call timed out after 5s and reported failure
+  even though the arm had moved correctly. Commands and convergence waits are
+  now scoped to the joints the robot actually reports in `joint_states` — the
+  one honest answer to "what does this robot have", and robust to per-robot
+  fitment rather than just to the three series.
+- **`open_grippers()` / `close_grippers()` always returned `False`.** They
+  commanded ±90°, a range that exists on no robot: the gripper travels −45°..60°
+  on A/S and −60°..60° on M. The URDF clamped the command, then `wait=True` sat
+  waiting for an angle the joint physically cannot reach. Now +60°/−45°, valid
+  on every series. (Cross-checked against `bonicOS-firmware`'s actuator
+  registry and both series' URDFs.)
+- **The SDK no longer sends `0.0` for a joint it has never seen.** Filling a
+  group from the joint table meant unrequested joints were commanded to zero,
+  walking straight past the robot's own guard against exactly that — it refuses
+  to guess `0.0` because an unrequested joint snapping to zero is a hazard on
+  hardware.
+- `servo_command`'s `unsupported` reply field (a real registry joint this robot
+  doesn't fit, as distinct from `unknown`, which isn't a registry joint at all)
+  is now honoured when deciding what to wait for.
+- **Simulator: every navigation goal that needed a turn was unreachable.**
+  `SimTransport`'s pure pursuit measured its lookahead from a fixed path
+  vertex, and the planner emits as few as two points for a clear run — so the
+  carrot never moved and the robot orbited it at its ~0.24 m turning radius
+  until the caller's timeout. Measured: a goal at (1.0, 0.8) left the robot
+  circling near the origin indefinitely, while (1.0, 0.0) succeeded, because
+  with no heading error the orbit degenerates to a straight line. The lookahead
+  is now taken from the robot's projection onto the path, which also makes the
+  result independent of how often the sim is ticked — `wait_for_goal` spins
+  without sleeping, so the controller had been sensitive to that. Affected
+  `go_to`, `navigate_waypoints` and `goto_location` alike, in the browser
+  simulator students use.
+
+### Added
+
+- **Named locations are real.** `save_location` / `goto_location` /
+  `list_locations` / `delete_location` / `delete_all_locations` were stubs and
+  are now live on the robot. Locations are **map-scoped**, so all of them take
+  an optional `map=`; `save_location` gained `x`/`y`/`theta` for saving a point
+  picked on a map rather than the robot's current pose. New
+  `nav.get_locations()` returns the full `{name, x, y, theta}` records.
+  `SimTransport` implements these too, rather than acking and forgetting.
+- `sensors.get_scan()`, `get_scan_points()` and `set_scan_enabled()` for the
+  new on-demand `scan` telemetry event (map-frame, downsampled; off by default
+  because 10 Hz of ~1000 ranges isn't worth carrying unwatched).
+- `camera.pause()` / `camera.resume()` — stop the robot encoding video nobody
+  is watching (~32% of a core on a real A2) without tearing down the track.
+- `system.start_base_session()` / `stop_base_session()`. These matter because
+  robot_app no longer autostarts the base stack on real hardware: a robot that
+  booted with no stack previously had no way back short of SSH.
+
+### Changed
+
+- `nav.list_locations()` returns names, extracted from the record dicts the
+  server actually sends (same treatment `list_maps()` already had). It
+  previously passed the raw list through, which only looked correct because the
+  stub always returned `[]`.
+- `nav.goto_location(..., wait=False)` returns the ack's `ok` instead of an
+  unconditional `True`, so a refused location (missing, or on the wrong map)
+  is not reported as a started goal.
+- Documentation: `restart_base_session` is no longer described as gated on a
+  `session_control` feature flag — capability gating was removed from robot_app
+  and that flag no longer exists.
+
 ## [0.2.0] — unreleased
 
 ### Removed — breaking

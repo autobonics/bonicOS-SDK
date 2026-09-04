@@ -40,7 +40,7 @@ python 01_connect_and_lifecycle.py
 | [`06_head_expression_and_display.py`](06_head_expression_and_display.py) | `set_expression`, `look`, LED-matrix display — **all 🔌 stub in v1** |
 | [`07_speech.py`](07_speech.py) | `speak()` |
 | [`08_sensors_and_telemetry.py`](08_sensors_and_telemetry.py) | `get_position/battery/imu`, `wait_for_update` loop pattern, `subscribe()` |
-| [`09_system_and_health.py`](09_system_and_health.py) | `health()`, `ask_llm()` (safe); `reconfig_wifi`/`trigger_update` shown, not run |
+| [`09_system_and_health.py`](09_system_and_health.py) | `health()` (safe); `reconfig_wifi`/`trigger_update` shown, not run |
 | [`10_square_patrol_routine.py`](10_square_patrol_routine.py) | A combined routine tying motion + telemetry + speech together |
 | [`11_error_handling.py`](11_error_handling.py) | `ConnectionError`, `RobotDisconnected`, `CommandError`, `RobotError` |
 

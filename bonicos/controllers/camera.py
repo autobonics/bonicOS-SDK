@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from typing import Dict, List, Optional
 
+from .. import protocol
 from ..exceptions import CameraUnavailable
 from ..transports.base import Frame
 from ._base import ControllerBase
@@ -59,3 +60,38 @@ class CameraController(ControllerBase):
         unaffected — only the video path closes."""
         if getattr(self._transport, "supports_camera", False):
             self._transport.stop_camera()
+
+    def pause(self, camera: Optional[str] = None) -> bool:
+        """Stop the robot ENCODING video you aren't looking at, without
+        dropping the stream.
+
+        The robot attaches a track per camera when the video link comes up and
+        has no way to know you've stopped reading frames — unwatched, that
+        stream measured ~32% of a core on a real A2, on a board already short
+        of headroom. Pausing drops it to a static frame a second.
+
+        Cheaper and far faster than ``stop()``/``start()``: the track stays
+        attached, so there is no renegotiation and ``resume()`` is instant.
+        Use ``stop()`` when you're done with video altogether, ``pause()``
+        when you'll want it back shortly.
+
+        ``camera`` names one; omit it for all of them. Returns ``False`` if
+        this connection carries no video at all (a local-WebSocket or BLE
+        lane), since there is nothing to pause and saying otherwise would let
+        a caller believe they'd saved something.
+        """
+        return self._set_enabled(False, camera)
+
+    def resume(self, camera: Optional[str] = None) -> bool:
+        """Undo :meth:`pause` — full frame rate again, no renegotiation."""
+        return self._set_enabled(True, camera)
+
+    def _set_enabled(self, enabled: bool, camera: Optional[str]) -> bool:
+        payload: Dict[str, object] = {
+            "type": protocol.CMD_SET_CAMERA_ENABLED,
+            "enabled": enabled,
+        }
+        if camera is not None:
+            payload["camera"] = camera
+        result = self._command(payload)
+        return bool(result.get("ok", False))

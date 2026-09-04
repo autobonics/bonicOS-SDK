@@ -225,14 +225,18 @@ Mapping:
 | `robot.get_map() -> dict` | Latest occupancy grid (decoded from cached `map`). |
 | `robot.get_costmap() -> dict` | Latest costmap (decoded from cached `costmap`), same shape as `get_map()`. |
 
-Named locations (semantic waypoints) — **all 🔌 stub in v1**:
+Named locations (semantic waypoints) — **live since 2026-08-31**. A location is
+a pose in a *map's* frame, so it is stored per map: pass `map=` to work with a
+map the robot isn't currently on, otherwise the running navigation session's
+map is used.
 
 | Method | Description |
 |---|---|
-| `robot.save_location(name) -> bool` | Save current pose under a name. |
-| `robot.goto_location(name, wait=True) -> bool` | Navigate to a saved location. |
-| `robot.list_locations() -> list[str]` | (`[]` while stubbed.) |
-| `robot.delete_location(name) -> bool` / `robot.delete_all_locations() -> bool` | Manage saved locations. |
+| `robot.save_location(name, x=None, y=None, theta=0.0, map=None) -> bool` | Two forms. With `x`/`y`, saves a point picked on a map. Without them, saves **where the robot is now** — which requires it to be navigating on that map and localized, and is refused otherwise (a pose saved before AMCL converges means nothing, and only fails much later when someone drives to it). |
+| `robot.goto_location(name, wait=True, map=None) -> bool` | Navigate to a saved location — a lookup plus the normal goal path, so it reports through `nav_status` like `go_to`. `False` if the location doesn't exist, or if the robot isn't navigating on that map: a pose from a *different* map is a well-formed coordinate pointing at a different room. |
+| `robot.list_locations(map=None) -> list[str]` | Location names, ready to hand back to `goto_location` (the server returns richer records — this extracts the name, same as `list_maps()`). Empty when there's no map to resolve. |
+| `robot.get_locations(map=None) -> list[dict]` | The full records: `{"name", "x", "y", "theta"}`, sorted by name, in the map's frame. |
+| `robot.delete_location(name, map=None) -> bool` / `robot.delete_all_locations(map=None) -> bool` | Manage saved locations. They're also dropped automatically when their map is deleted. |
 
 Grouped access: `robot.nav.*`.
 
@@ -243,11 +247,18 @@ Grouped access: `robot.nav.*`.
 Built on `servo_command` (registry camelCase joints → controller groups,
 angles in **degrees** at the API boundary, converted to radians on the wire).
 
-**On Lite:** ✅ fully available. On **every** model, actuator count is a build
-option — a robot may ship 10 or 12 of the 18 below. `get_servo_angles()`
-reports exactly the fitted set, so use it to check before addressing a joint by
-name. Naming a joint the robot does not have is currently a **silent** failure:
-`set_servos(wait=True)` waits for feedback that never arrives and times out.
+**Not every robot has every joint.** The 18 below are the maximum fitment
+(M1). An A2 fits **7** of them — shoulder pitch and elbow per arm, one gripper
+per side, and neck yaw; no wrists, no shoulder yaw/roll, **no neck pitch**. S
+fits 14. It isn't even fixed per series: actuator fitment and travel limits are
+per-robot config the ESP loads at boot.
+
+You do not have to track any of that. `get_servo_angles()` reports exactly the
+fitted set, and since 2026-09-04 the SDK scopes commands *and* the `wait=True`
+convergence check to the joints the robot actually reports — so
+`move_left_arm()` on an A2 moves the two joints it has and returns `True`,
+rather than waiting for five it doesn't. Naming an absent joint explicitly is
+reported by the server (`unsupported`) and skipped rather than waited on.
 
 | Method | Description |
 |---|---|
@@ -255,9 +266,9 @@ name. Naming a joint the robot does not have is currently a **silent** failure:
 | `robot.move_left_arm(shoulder, elbow, wait=True, duration=1.0, timeout=None) -> bool` | Left arm shorthand. |
 | `robot.move_right_arm(shoulder, elbow, wait=True, duration=1.0, timeout=None) -> bool` | Right arm shorthand. |
 | `robot.set_grippers(left, right) -> bool` | Both grippers (degrees). |
-| `robot.open_grippers() / close_grippers() -> bool` | Convenience. |
+| `robot.open_grippers() / close_grippers() -> bool` | Convenience. Command +60°/−45°, the range valid on every series (fixed 2026-09-04: these were ±90°, which no robot can reach — the command got clamped and then `wait=True` timed out waiting for a target that doesn't exist). |
 | `robot.set_neck(yaw) -> bool` / `robot.look_left/right/center() -> bool` | Neck yaw. |
-| `robot.reset_servos() -> bool` | All 18 registry joints to neutral. |
+| `robot.reset_servos() -> bool` | Every joint **this robot has** to neutral (0°). |
 | `robot.set_single_servo(joint, angle) -> bool` | One joint by name. **🔌 stub** (direct addressing) where no controller group covers it. |
 | `robot.get_servo_angles() -> dict` | From `joint_states` telemetry, keyed by the same **registry camelCase** names (e.g. `"leftElbow"`) commands are sent with — not the raw snake_case URDF names the wire uses underneath. |
 
@@ -356,6 +367,16 @@ room". `get_imu()` depends on an IMU being fitted (a build option on Lite).
 | `robot.wait_for_data(timeout=5.0) -> bool` | Block until first telemetry arrives after connect. |
 | `robot.subscribe(events)` | Narrow the telemetry stream (e.g. `["pose", "battery"]`). |
 
+Laser scan is **off by default** — 10 Hz of ~1000 ranges is not worth carrying
+for an overlay nobody has open — so it lives behind its own pair of methods
+(grouped-only, `robot.sensors.*`):
+
+| Method | Description |
+|---|---|
+| `robot.sensors.get_scan() -> dict \| None` | Latest scan: `{"origin": {x, y, theta}, "angle_min", "angle_increment", "range_min", "range_max", "ranges"}`, in the **map** frame. Turns the stream on for you on first call, so expect `None` for a frame or two. Also `None` if the robot has no laser, or isn't localized — scans are only emitted once the map-frame transform exists. `ranges` entries are `None` where the beam got no return. |
+| `robot.sensors.get_scan_points() -> list[tuple[float, float]]` | The same scan flattened to map-frame `(x, y)` points with no-returns dropped — the convenient form for plotting, or for "is anything in front of me". |
+| `robot.sensors.set_scan_enabled(enabled=True) -> bool` | Turn the stream on/off explicitly. Turning it off only stops it if no other client wants it; disconnecting counts as turning it off, so a script that forgets doesn't leak. |
+
 **Recommended loop pattern** (from `bonic-architecture.md` §5 — never spins,
 self-paces to the sensor rate):
 
@@ -390,6 +411,8 @@ lists what a given robot actually has.
 | `robot.camera.get_frames() -> dict[str, ndarray \| None]` | Latest frame for every camera, keyed by name. |
 | `robot.camera.start(cameras=None)` | Bring the stream up now instead of lazily on first `get_frame()`. Blocks until the link is established (or raises `CameraUnavailable` on timeout/no video path). |
 | `robot.camera.stop()` | Tear down the video path (idempotent). Commands/telemetry are unaffected. |
+| `robot.camera.pause(camera=None) -> bool` | Stop the robot **encoding** video you aren't looking at, without dropping the stream. The robot can't tell you've stopped reading frames, and an unwatched stream measured ~32% of a core on a real A2. Far cheaper than `stop()`/`start()`: the track stays attached, so there's no renegotiation and `resume()` is instant. `False` on a connection with no video at all. |
+| `robot.camera.resume(camera=None) -> bool` | Undo `pause()`. |
 
 If there is no video path on this connection, camera calls raise `CameraUnavailable` rather than silently returning
 `None` forever.
@@ -406,20 +429,22 @@ Grouped access: `robot.camera.*`.
 
 ## 10. System
 
-**On Lite:** mixed. `health()`, `reconfig_wifi()`, `trigger_update()` and
-`ask_llm()` are ✅ available (the tablet answers them). `restart_base_session()`,
-`get_session_status()` and the grouped `system.get_base_session()` /
-`get_session_health()` are ❌ — there is no ROS stack to supervise, so
-`session_control` is false.
+**On Lite:** mixed. `health()`, `reconfig_wifi()` and `trigger_update()` are
+✅ available (the tablet answers them). The base-session methods and the
+grouped `system.get_base_session()` / `get_session_health()` are ❌ — there is
+no ROS stack to supervise, so the robot answers with an `error` explaining
+that. (This used to be described as gated on a `session_control` feature flag;
+capability gating was removed — see PROTOCOL.md §3.1.)
 
 | Method | Description |
 |---|---|
 | `robot.health() -> dict` | CPU / RAM / temperature / container status. |
-| `robot.restart_base_session(timeout=120.0) -> bool` | Recover a wedged robot: restart the ROS stack *underneath* mapping/navigation (drive, controllers, EKF, sensors, TF) — nav session down, base down, base up, nav session back. **🔒 gated on `session_control`.** Refused while the robot is moving or running a nav goal — cancel/stop first. Slow (cold-start Gazebo alone is ~25s); the long default timeout reflects that, and a WebRTC video peer will drop partway through since the restart takes the camera topics with it. |
+| `robot.restart_base_session(timeout=120.0) -> bool` | Recover a wedged robot: restart the ROS stack *underneath* mapping/navigation (drive, controllers, EKF, sensors, TF) — nav session down, base down, base up, nav session back. Refused while the robot is moving or running a nav goal — cancel/stop first. Slow (cold-start Gazebo alone is ~25s); the long default timeout reflects that, and a WebRTC video peer will drop partway through since the restart takes the camera topics with it. |
+| `robot.system.start_base_session(timeout=120.0) -> bool` | Bring the base stack up. A real robot does **not** start it on boot — powering on must not energise servos on its own — so this is how a freshly-booted robot is brought to life without SSH. |
+| `robot.system.stop_base_session(timeout=60.0) -> bool` | Take the base stack down; the robot can't move or perceive until it's restarted. Same guard as `restart_base_session` — refused while moving or running a goal. |
 | `robot.get_session_status() -> dict` | Fresh, synchronous `{"base": {...}, "nav": {...}, "health": {...}}` — the full picture behind `system.get_base_session()`/`get_session_health()` in one round trip, without waiting for a push. |
 | `robot.reconfig_wifi(ssid, password) -> bool` | Apply Wi-Fi credentials. |
 | `robot.trigger_update() -> bool` | Pull + restart the robot app. |
-| `robot.ask_llm(prompt, model=None) -> str` | On-device LLM (S/M series). **Display only** — output is never executed as a command. Blocks and returns the full text (tokens stream internally). |
 
 Grouped-only (`robot.system.*`, not flattened onto `robot.*` — mirrors
 `get_plan()`/`get_costmap()`):

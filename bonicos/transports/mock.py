@@ -30,8 +30,8 @@ class MockTransport:
         # is a missed-wakeup race against a caller that hasn't reached
         # wait() yet — this counter closes that gap. Real here too, not just
         # theoretical: push_event/set_telemetry run on whatever thread the
-        # test uses (e.g. a background pusher in test_system.py's ask_llm
-        # streaming test), racing a consumer thread's wait_for_update().
+        # test uses (e.g. a background pusher simulating a streaming event),
+        # racing a consumer thread's wait_for_update().
         self._update_seq = 0
         self.sent: List[dict] = []
         self._default_acks: Dict[str, dict] = {}
@@ -75,14 +75,13 @@ class MockTransport:
         }
 
     def push_event(self, event: str, payload: dict) -> None:
-        """Push an async event (e.g. ``nav_status``, ``llm_token``).
+        """Push an async event (e.g. ``nav_status``).
 
         Updates the last-value cache (for ``read_telemetry()``/
         ``get_nav_status()``-style getters) *and* appends to the per-type
-        event log so a burst of same-type messages — e.g. streaming
-        ``llm_token`` chunks — isn't lost to last-value-wins coalescing.
-        Mirrors the ``self._events.append(msg)`` branch in
-        the real transport's ``_rx_loop``.
+        event log so a burst of same-type messages isn't lost to
+        last-value-wins coalescing. Mirrors the ``self._events.append(msg)``
+        branch in the real transport's ``_rx_loop``.
         """
         msg = {"type": event, **payload}
         self._telemetry[event] = msg
@@ -156,7 +155,7 @@ class MockTransport:
 
     # --- extra: async-event draining (not part of the formal Transport ---
     # --- protocol — used by controllers that need every message of a    ---
-    # --- fast-moving event type, e.g. system.ask_llm's llm_token chunks) --
+    # --- fast-moving event type rather than just the last-value cache)  --
 
     def drain_events(self, event_type: str) -> List[dict]:
         events = self._event_log.get(event_type, [])

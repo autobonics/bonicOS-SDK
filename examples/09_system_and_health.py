@@ -1,15 +1,11 @@
-"""System-level calls: health, session status, on-device LLM, Wi-Fi, updates
-(API.md §10).
+"""System-level calls: health, session status, Wi-Fi, updates (API.md §10).
 
-`health()`, `get_session_status()`, and `ask_llm()` are safe to run any time.
+`health()` and `get_session_status()` are safe to run any time.
 `reconfig_wifi()`, `trigger_update()`, and `restart_base_session()` are NOT —
 one can drop the robot off your network, one restarts the robot_app process,
 and one restarts the ROS stack underneath mapping/navigation (~25s+, drops
 any WebRTC video peer) — so this example only prints what they'd look like
 rather than calling them.
-
-`ask_llm()` is display-only: its output is text you print/speak yourself,
-never executed as a command.
 """
 
 from bonicos import BonicBot
@@ -32,9 +28,6 @@ def main() -> None:
         # base_session/session_health frame has arrived yet.
         print("system.get_base_session():", robot.system.get_base_session())
         print("system.get_session_health():", robot.system.get_session_health())
-
-        answer = robot.ask_llm("In one sentence, what is a differential drive robot?")
-        print("ask_llm(...) ->", answer)
 
         print(
             "Not calling reconfig_wifi()/trigger_update()/restart_base_session() "

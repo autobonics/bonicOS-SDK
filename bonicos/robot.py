@@ -392,20 +392,32 @@ class BonicBot:
     def get_plan(self) -> List[Tuple[float, float]]:
         return self.nav.get_plan()
 
-    def save_location(self, name: str) -> bool:
-        return self.nav.save_location(name)
+    def save_location(
+        self,
+        name: str,
+        x: Optional[float] = None,
+        y: Optional[float] = None,
+        theta: float = 0.0,
+        map: Optional[str] = None,
+    ) -> bool:
+        return self.nav.save_location(name, x, y, theta, map)
 
-    def goto_location(self, name: str, wait: bool = True) -> bool:
-        return self.nav.goto_location(name, wait)
+    def goto_location(
+        self, name: str, wait: bool = True, map: Optional[str] = None
+    ) -> bool:
+        return self.nav.goto_location(name, wait, map=map)
 
-    def list_locations(self) -> List[str]:
-        return self.nav.list_locations()
+    def list_locations(self, map: Optional[str] = None) -> List[str]:
+        return self.nav.list_locations(map)
 
-    def delete_location(self, name: str) -> bool:
-        return self.nav.delete_location(name)
+    def get_locations(self, map: Optional[str] = None) -> List[Dict[str, Any]]:
+        return self.nav.get_locations(map)
 
-    def delete_all_locations(self) -> bool:
-        return self.nav.delete_all_locations()
+    def delete_location(self, name: str, map: Optional[str] = None) -> bool:
+        return self.nav.delete_location(name, map)
+
+    def delete_all_locations(self, map: Optional[str] = None) -> bool:
+        return self.nav.delete_all_locations(map)
 
     # --- arms, grippers & neck (API.md §5) ----------------------------------
 
@@ -555,6 +567,3 @@ class BonicBot:
 
     def trigger_update(self) -> bool:
         return self.system.trigger_update()
-
-    def ask_llm(self, prompt: str, model: Optional[str] = None) -> str:
-        return self.system.ask_llm(prompt, model)

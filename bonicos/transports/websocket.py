@@ -239,9 +239,8 @@ class WebSocketTransport:
         protocol (:mod:`bonicos.transports.base` lists no such method) — an extra a
         controller can reach for when it needs every message of a
         fast-moving ``ASYNC_EVENTS`` type rather than just the last-value
-        snapshot ``read_telemetry()`` gives (e.g. ``system.ask_llm``'s
-        ``llm_token`` chunks). Mirrors the ``self._events.append(msg)``
-        branch in this module's ``_rx_loop``.
+        snapshot ``read_telemetry()`` gives. Mirrors the
+        ``self._events.append(msg)`` branch in this module's ``_rx_loop``.
         """
         with self._event_log_lock:
             events = self._event_log.get(event_type, [])

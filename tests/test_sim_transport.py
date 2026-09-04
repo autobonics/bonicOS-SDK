@@ -1078,3 +1078,60 @@ def test_a_long_unticked_drive_still_collides_along_the_way(
     sim.send({"type": protocol.CMD_DRIVE, "linear_x": 0.0, "angular_z": 0.0})
 
     assert sim.read_telemetry()["pose"]["x"] == pytest.approx(0.8 - 0.22, abs=0.02)
+
+
+# --- pure pursuit: the carrot must advance with the robot ------------------
+#
+# Regression for a bug that made EVERY goal needing a turn unreachable
+# (2026-09-04). `_pursue_path` measured its lookahead from `path[index]`, a
+# fixed vertex, and A* + smoothing emits as few as two points for a clear run
+# — so the carrot never moved, and the robot orbited it at its ~0.24 m turning
+# radius until the caller's timeout. On-axis goals hid it completely: with no
+# heading error the orbit degenerates to a straight line and the robot
+# arrives, which is why the original sim tests all passed.
+
+
+def test_lookahead_carrot_advances_as_the_robot_moves(sim: SimTransport) -> None:
+    sim.connect()
+    sim.send({"type": protocol.CMD_NAV_GOAL, "x": 1.0, "y": 0.8})
+
+    def carrot() -> tuple:
+        seg_i, seg_t = sim._project_onto_path()
+        return sim._lookahead_point(seg_i, seg_t, 0.30)
+
+    start = carrot()
+    # Walk the robot along its own path without ticking the controller, so
+    # this measures the geometry alone.
+    sim._x, sim._y = 0.47, 0.37  # ~halfway to the goal, on the path
+    moved = carrot()
+
+    assert moved != start, "carrot is pinned to a vertex — it must track the robot"
+    # And it stays roughly a lookahead ahead, not stuck behind.
+    ahead = math.hypot(moved[0] - sim._x, moved[1] - sim._y)
+    assert ahead == pytest.approx(0.30, abs=0.05)
+
+
+def test_projection_never_rewinds_to_an_earlier_segment(sim: SimTransport) -> None:
+    """A path that doubles back must not re-target a segment already driven."""
+    sim.connect()
+    sim.send({"type": protocol.CMD_NAV_GOAL, "x": 1.0, "y": 0.0})
+    sim._nav_path = [(0.0, 0.0), (1.0, 0.0), (0.0, 0.0)]
+    sim._nav_path_index = 1
+    sim._x, sim._y = 0.5, 0.0  # equidistant from both passes
+    seg_i, _ = sim._project_onto_path()
+    assert seg_i >= 1
+
+
+def test_off_axis_goal_arrives_when_spun_without_sleep(sim: SimTransport) -> None:
+    """The end-to-end shape of the bug: `wait_for_goal` spins with no sleep
+    (SimTransport.wait_for_update ticks once and returns immediately), so the
+    controller has to be correct independently of how often it is called."""
+    sim.connect()
+    sim.send({"type": protocol.CMD_NAV_GOAL, "x": 0.6, "y": 0.5})
+    deadline = time.monotonic() + 20.0
+    while time.monotonic() < deadline:
+        sim.wait_for_update(0.02)
+        if sim._nav_state in ("succeeded", "failed", "canceled"):
+            break
+    assert sim._nav_state == "succeeded"
+    assert math.hypot(sim._x - 0.6, sim._y - 0.5) < 0.15

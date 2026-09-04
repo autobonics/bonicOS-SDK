@@ -15,13 +15,24 @@ from .. import protocol
 from ..enums import ServoID
 from ._base import ControllerBase
 
-#: Placeholder open/closed angles pending real hardware tuning — the servo
-#: range (-90..90) is taken from the old BLE SDK's ``ServoConstants``
-#: (``Bonicbot-SDKs/bonicbot/bonicbot/controllers/models.py``), but which
-#: end is physically "open" vs "closed" is hardware-specific.
-GRIPPER_OPEN_DEG = 90.0
-GRIPPER_CLOSE_DEG = -90.0
+#: Gripper end stops, from ``protocol.GRIPPER_RANGE_DEG`` — the narrowest
+#: range valid on every series.
+#:
+#: These were -90/+90 until 2026-09-04, carried over from the old BLE SDK's
+#: ``ServoConstants``. That range does not exist on ANY robot: the gripper
+#: travels -45..60 on A/S and -60..60 on M (bonicOS-firmware
+#: ``bonicbot_actuator_naming.md``, matching both URDFs). Commanding 90 got
+#: clamped to 60 by the URDF limit, and then ``_wait_for_convergence`` sat
+#: waiting for a joint to reach an angle it physically cannot — so
+#: ``open_grippers()`` and ``close_grippers()`` returned False after a 5s
+#: timeout on every robot, having actually worked.
+#:
+#: Polarity (positive = open) is unchanged and still unverified against
+#: hardware; only the magnitudes are fixed here.
+GRIPPER_OPEN_DEG = protocol.GRIPPER_RANGE_DEG[1]  # 60.0
+GRIPPER_CLOSE_DEG = protocol.GRIPPER_RANGE_DEG[0]  # -45.0
 
+#: Well inside neck yaw's +/-90 on every series, so these need no clamping.
 NECK_LEFT_DEG = 45.0
 NECK_RIGHT_DEG = -45.0
 NECK_CENTER_DEG = 0.0
@@ -114,7 +125,17 @@ class ArmController(ControllerBase):
         return self.set_neck(NECK_CENTER_DEG)
 
     def reset_servos(self) -> bool:
-        return self._send_servo_command({joint.value: 0.0 for joint in ServoID})
+        """Return every actuator this robot has to 0 degrees.
+
+        Scoped to the joints the robot actually reports rather than all 18 in
+        the registry — on A2 that is 7, and naming the other 11 just to have
+        the server drop them makes a clean call look like a partial failure.
+        Falls back to the full registry before the first ``joint_states``
+        frame, where the SDK has nothing better to go on.
+        """
+        observed = self.get_servo_angles()
+        targets = observed or {joint.value: 0.0 for joint in ServoID}
+        return self._send_servo_command({key: 0.0 for key in targets})
 
     def set_single_servo(
         self,
@@ -156,9 +177,9 @@ class ArmController(ControllerBase):
     # --- internal ------------------------------------------------------
 
     def _fill_group(self, angles: Dict[str, float]) -> Dict[str, float]:
-        """Expand ``angles`` so every touched group carries its FULL joint
-        set, holding any joint the caller didn't specify at its current
-        measured position.
+        """Expand ``angles`` so every touched group carries its full joint
+        set **as this robot actually reports it**, holding any joint the
+        caller didn't specify at its current measured position.
 
         Required for correctness, not just completeness: verified against
         the real M1 sim (2026-08-04, cross-checked against an independent
@@ -167,9 +188,32 @@ class ArmController(ControllerBase):
         ``JointTrajectoryController``/``JointGroupPositionController`` —
         silently ignore a command that omits any joint they claim. Without
         this, convenience methods like ``move_left_arm(shoulder, elbow)``
-        (2 of 7 left_arm joints) are a no-op. Keys that aren't part of any
-        known group (typos) pass through unchanged for the server's normal
-        ``unknown`` handling.
+        (2 of 7 left_arm joints on M) are a no-op.
+
+        **Filled from ``joint_states``, not from the table.** ``JOINT_GROUPS``
+        is the 18-actuator M fitment; A fits 7 of those and S 14, and per-robot
+        NVS config means fitment isn't even fixed per series (see
+        ``protocol.JOINT_GROUPS``' note). Filling from the table sent A2 five
+        joints it does not have on every ``move_left_arm`` — harmless on the
+        wire (the server drops them and reports them as ``unsupported``) but
+        the SDK then waited for them to converge, and a joint that does not
+        exist never reports a position. ``move_left_arm``, ``set_neck`` and
+        ``reset_servos`` therefore returned False after a 5s timeout on A2
+        while the arm moved correctly.
+
+        Filling only what the robot reports also removes the old ``0.0``
+        default, which was its own hazard: robot_app refuses to guess 0.0 for
+        a joint it has never seen precisely because an unrequested joint
+        snapping to zero is dangerous on hardware, and the SDK was walking
+        past that guard by sending an explicit 0.0.
+
+        Before the first ``joint_states`` frame arrives there is nothing to
+        fill from, so the command goes out as the caller wrote it and the
+        server decides — it has its own last-sample fill and will answer
+        ``failed`` rather than move a joint blind.
+
+        Keys that aren't part of any known group (typos) pass through
+        unchanged for the server's normal ``unknown`` handling.
         """
         groups_touched = {
             protocol.JOINT_GROUP_OF[key]
@@ -182,8 +226,8 @@ class ArmController(ControllerBase):
         filled = dict(angles)
         for group in groups_touched:
             for key in protocol.JOINT_GROUPS[group]:
-                if key not in filled:
-                    filled[key] = current.get(key, 0.0)
+                if key not in filled and key in current:
+                    filled[key] = current[key]
         return filled
 
     def _send_servo_command(
@@ -207,12 +251,19 @@ class ArmController(ControllerBase):
         if not result.get("ok", False):
             return False
 
-        # Exclude any key the server flagged as unrecognized (PROTOCOL.md
-        # §5.4 `unknown`) — it was never actually sent to a joint, so
-        # waiting for it to "converge" would spuriously time out the whole
-        # call even though every valid joint got there fine.
-        unknown = set(result.get("unknown", []))
-        targets = {key: angle for key, angle in angles.items() if key not in unknown}
+        # Exclude any key the server said it did not drive (PROTOCOL.md §5.4):
+        #   `unknown`     — not a registry joint at all (a typo).
+        #   `unsupported` — a real registry joint this robot does not fit.
+        # Neither reached a servo, so waiting for either to "converge" would
+        # spuriously time out the whole call even though every joint the robot
+        # does have got there fine. `unsupported` is the A2 case: the registry
+        # is shared across series and names 18 actuators, A2 fits 7.
+        #
+        # An older robot_app reports neither for an absent joint, which is why
+        # `_fill_group` no longer sends them in the first place — this is the
+        # second line of defence, for a joint the CALLER named explicitly.
+        not_driven = set(result.get("unknown", [])) | set(result.get("unsupported", []))
+        targets = {key: angle for key, angle in angles.items() if key not in not_driven}
         if not targets:
             return True
 

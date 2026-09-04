@@ -16,9 +16,8 @@ def test_telemetry_and_async_events_are_disjoint() -> None:
     assert protocol.TELEMETRY_EVENTS.isdisjoint(protocol.ASYNC_EVENTS)
 
 
-def test_nav_status_and_llm_token_are_async_events() -> None:
+def test_nav_status_is_an_async_event() -> None:
     assert protocol.EVENT_NAV_STATUS in protocol.ASYNC_EVENTS
-    assert protocol.EVENT_LLM_TOKEN in protocol.ASYNC_EVENTS
 
 
 def test_cached_events_are_telemetry_events() -> None:

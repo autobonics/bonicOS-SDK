@@ -251,22 +251,47 @@ which is exactly what `nav_mode`'s `localized` field (§6) reports;
 
 ### 5.3 Named locations (semantic waypoints)
 
-Back the education "go to the kitchen" workflow. All 🔌 stub in v1 — they map to
-`/robot/*` topics/services in `bonicOS-m1-ros` that are not implemented yet.
+Back the education "go to the kitchen" workflow. **Live since 2026-08-31**
+(previously stubs), backed by `robot_app`'s `managers/location_store.py`.
+
+A location is a pose in a **map's** coordinate frame, so every command here
+resolves a map first: the `map` field if given, otherwise whichever map the
+running navigation session has loaded. No map and no session ⇒ refused.
+Passing `map` explicitly is what lets a UI list or tidy up places saved on a
+map the robot is not currently using.
 
 | type | status | fields | reply |
 |---|---|---|---|
-| `save_location` | 🔌 stub | `name` (save current pose) | `ack {ok, name}` |
-| `goto_location` | 🔌 stub | `name` | `ack {goal_id}`, then `nav_status` |
-| `delete_location` | 🔌 stub | `name` | `ack {ok}` |
-| `delete_all_locations` | 🔌 stub | — | `ack {ok}` |
-| `list_locations` | 🔌 stub | — | `ack {locations:[...]}` (returns `[]` while stubbed) |
+| `save_location` | ✅ live | `name`, `map?`, `x?`, `y?`, `theta?` | `ack {ok, name, map, x, y, theta}` |
+| `goto_location` | ✅ live | `name`, `map?` | `ack {ok, name, map, goal_id}`, then `nav_status` |
+| `delete_location` | ✅ live | `name`, `map?` | `ack {ok, name, map}` |
+| `delete_all_locations` | ✅ live | `map?` | `ack {ok, map, deleted}` |
+| `list_locations` | ✅ live | `map?` | `ack {ok, map, locations:[{name,x,y,theta},...]}` |
+
+**`list_locations` returns records, not names.** Same shape trap as
+`list_maps` — `nav.list_locations()` extracts the names, `nav.get_locations()`
+keeps the coordinates.
+
+`save_location` has two forms. With `x`/`y` it stores a point the operator
+picked on a map, which need not be the loaded one. Without them it stores where
+the robot is standing — and *that* form is refused unless the robot is
+navigating on the map being written to, because saving "here" while AMCL has
+not converged records a coordinate that means nothing and only fails much
+later, when someone navigates to it.
+
+`goto_location` is pinned to the loaded map for a sharper reason: a map-frame
+pose from a *different* map is a perfectly well-formed coordinate pointing at a
+different room, and nothing downstream would catch it. The robot would simply
+drive there.
+
+Locations are dropped when their map is deleted (`delete_map`) — a later map
+reusing that name must not inherit places from a different room.
 
 ### 5.4 Servos / arms / grippers / neck
 
 | type | status | fields | reply |
 |---|---|---|---|
-| `servo_command` | ✅ live | `servos:{<camelCaseJoint>: rad, ...}`, `duration?` | `ack {ok, groups, unknown}` |
+| `servo_command` | ✅ live | `servos:{<camelCaseJoint>: rad, ...}`, `duration?` | `ack {ok, groups, failed, unknown, unsupported}` |
 | `servo_single` | 🔌 stub | `joint`, `angle`, `speed?`, `acc?` | `ack {ok}` |
 
 `servo_command` already maps registry camelCase joint keys → snake_case URDF
@@ -301,6 +326,47 @@ the camelCase key:
 | `leftGripper` | `left_gripper_finger1_joint` |
 | `neckYaw` | `neck_yaw_joint` |
 | `neckPitch` | `neck_pitch_joint` |
+
+#### The registry is a vocabulary, not an inventory
+
+Those 18 are the **maximum** fitment. Which of them a robot in front of you
+actually has is a different question, and the answer is not even fixed per
+series:
+
+| series | fitted | what's missing |
+|---|---|---|
+| A (A2) | 7 — shoulder pitch + elbow per arm, one gripper per side, neck yaw | wrists, shoulder yaw/roll, gripper yaw, **neck pitch** |
+| S | 14 | gripper yaw, wrist pitch |
+| M (M1) | all 18 | — |
+
+Cross-checked three ways: `bonicOS-firmware`'s `bonicbot_actuator_naming.md`
+(BLE id registry), each series' `controllers.yaml`, and `robot_app`'s
+`ROBOT_CONFIG`. And fitment is ultimately **per robot**: the ESP loads
+`SERVO_CONFIGURED[]` and a `servo_config` limits blob from NVS at boot, so two
+robots of the same series can differ.
+
+So `servo_command` distinguishes three ways a joint can fail to move, and a
+client needs all three:
+
+- **`unknown`** — not a registry joint at all (a typo).
+- **`unsupported`** — a real registry joint this robot does not fit. Dropped,
+  not an error: the message is built from the controller's own joint list.
+  Reported so a client can tell "absent" from "broken".
+- **`failed`** — `{group: reason}`, most often "no known position yet" for a
+  `Float64MultiArray` group. That message type carries no joint names — array
+  position *is* joint identity — so the robot fills unspecified joints from the
+  last `joint_states` sample and **refuses rather than guessing `0.0`**, since
+  an unrequested joint snapping to zero is a real hazard on hardware.
+
+The SDK never holds a series→joints table (see §3.1). It scopes commands and
+convergence waits to the joints the robot **reports in `joint_states`**, which
+is the one honest answer to "what does this robot have".
+
+**Travel limits** are enforced by the URDF and independently by the ESP, and
+they differ per series too — the gripper travels −45°..60° on A/S and
+−60°..60° on M. The SDK does not validate user angles against these, but its
+canned poses (`open_grippers`, `look_left`, …) command values valid on every
+series, so they don't get clamped into a convergence timeout.
 
 ### 5.5 Head expression & LED matrix — all 🔌 stub
 
@@ -349,14 +415,45 @@ the same regardless; only *who drives the amplifier* changes underneath.
 |---|---|---|---|
 | `health` | ✅ live | — | `ack {type:"health", cpu, ram, temp, ...}` |
 | `restart_base_session` | ✅ live | — | `ack {ok, error?, running, transitioning}` |
+| `start_base_session` | ✅ live | — | `ack {ok, error?, running, transitioning}` |
+| `stop_base_session` | ✅ live | — | `ack {ok, error?, running, transitioning}` |
 | `get_session_status` | ✅ live | — | `ack {base:{...}, nav:{...}, health:{...}}` |
 | `reconfig_wifi` | ✅ live | `ssid`, `password` | `ack {ok}` |
 | `trigger_update` | ✅ live | — | `ack {ok, detail}` |
 | `subscribe` | ✅ live | `events:[...]` (omit/empty ⇒ all) | `ack {ok, events:[...]}` |
-| `llm_query` | ✅ live | `prompt`, `model?` | stream of `llm_token` events (display only) |
+| `set_scan_enabled` | ✅ live | `enabled` | `ack {ok, enabled}` |
+| `set_camera_enabled` | ✅ live | `enabled`, `camera?` | `ack {ok, enabled, cameras}` |
 
 `subscribe` narrows the telemetry firehose per client and replays cached
 `map`/`costmap` for newly-covered events.
+
+**`start_base_session` / `stop_base_session` matter more than they look.**
+`robot_app`'s `base_autostart` now defaults to **false on real hardware** —
+bringing the app up (a deploy, a power cycle, a `systemctl restart`) must not
+spin motors and energise servos on its own. A robot that booted with no stack,
+or whose stack was stopped from here, has no other way back without SSH.
+`stop_base_session` carries the same guard as `restart_base_session` and is
+refused while the robot is moving or a goal is running.
+
+**`set_scan_enabled` / `set_camera_enabled` are cost control, not capability.**
+Neither changes what the robot can do; they change what it spends CPU on while
+nobody is looking. Scan is the only telemetry topic not subscribed at startup
+(10 Hz × ~1000 ranges, each frame costing a TF lookup and a downsample); the
+ROS subscription is global (one ROS graph) but the *request* is per client and
+reconciled across all of them, so it also stops when the last client that
+wanted it disconnects without turning it off. `set_camera_enabled` idles one
+viewer's WebRTC track — measured at ~32% of a core on a real A2 when unwatched
+— without dropping it, since every signaling lane here is one-shot
+offer/answer and removing a sender would need renegotiation. A lane with no
+media tracks (local WS, BLE) answers `ok: false` rather than pretending.
+
+**`llm_query` removed (2026-09-04).** The on-device LLM command (Ollama-backed
+token streaming, `prompt`/`model?` → `llm_token` events, display-only) was
+implemented but never actually used by any client, so both the SDK's
+`ask_llm()`/`robot.ask_llm()` and robot_app's `llm_query` handler have been
+deleted, along with the `llm_ondevice` feature flag that gated it. Not
+implemented, not planned — if on-device LLM access comes back later it'll be
+a new design, not a revival of this one.
 
 **Base session supervision** (added 2026-08-09, after a ~15min outage that
 stayed invisible to any client — see `SESSION_SUPERVISION.md` in
@@ -403,11 +500,21 @@ shapes come from `robot_app/ros/bridge_base.py`.
 | `map` | `info:{...}, data_b64` (zlib) | `get_map()` (cached, replayed on auth) |
 | `costmap` | `info:{...}, data_b64` | cached, replayed on auth |
 | `plan` | `points:[[x,y],...]` | `get_plan()` |
+| `scan` | `origin:{x,y,theta}, angle_min, angle_increment, range_min, range_max, ranges:[float\|null]` | `sensors.get_scan()`, `get_scan_points()` (**on demand** — see `set_scan_enabled`) |
 | `nav_status` | `status: idle\|navigating\|succeeded\|failed\|canceled`, `goal_id?`, `distance_to_goal?` | `wait_for_goal()`, `get_nav_status()` |
 | `nav_mode` | `mode: idle\|mapping\|navigating`, `map`, `transitioning`, `localized` | `get_nav_mode()` (cached, replayed on auth — same mechanism as `map`/`costmap`) |
 | `base_session` | `running, owned, transitioning, error` | `system.get_base_session()` (cached, replayed on auth) |
 | `session_health` | `ok, base:{...}, nav:{...}, issues:[...]` | `system.get_session_health()` (cached, replayed on auth; pushed only on change) |
-| `llm_token` | `token, done` | `llm_query()` streaming |
+
+**`scan` is unlike every other telemetry event, in two ways.** It is
+subscribed **on demand only** — nothing arrives until a client sends
+`set_scan_enabled` (§5.7), so a `None` from `get_scan()` may just mean nobody
+asked. And it is emitted only while the robot is **localized**: the payload is
+expressed in the map frame, so without a map→scanner transform there is no
+correct place to draw the points, and drawing them at the origin would be worse
+than drawing nothing. `ranges` is downsampled, and `angle_increment` is the
+*effective* step after downsampling so a client places point *i* without
+knowing the stride; `null` entries are inf/NaN "no return" readings.
 
 **`pose` is TF-derived, not topic-derived (changed 2026-08-07).**
 `robot_app` looks up `map_frame -> base_frame` TF (`RosBridge._poll_pose`,

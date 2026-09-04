@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import threading
-import time
-
 import pytest
 
 from bonicos import protocol
@@ -124,25 +121,3 @@ def test_speak(robot, transport) -> None:
     sent = transport.sent[-1]
     assert sent["text"] == "hello there"
     assert sent["voice"] == "default"
-
-
-def test_ask_llm_streams_and_joins_tokens(robot, transport) -> None:
-    def pusher() -> None:
-        time.sleep(0.02)
-        transport.push_event(
-            protocol.EVENT_LLM_TOKEN, {"id": 1, "token": "Hel", "done": False}
-        )
-        time.sleep(0.02)
-        transport.push_event(
-            protocol.EVENT_LLM_TOKEN, {"id": 1, "token": "lo", "done": True}
-        )
-
-    threading.Thread(target=pusher, daemon=True).start()
-    text = robot.system.ask_llm("say hi", timeout=2.0)
-    assert text == "Hello"
-    assert transport.sent[-1]["type"] == protocol.CMD_LLM_QUERY
-    assert transport.sent[-1]["prompt"] == "say hi"
-
-
-def test_ask_llm_times_out_without_a_done_token(robot, transport) -> None:
-    assert robot.system.ask_llm("say hi", timeout=0.1) == ""

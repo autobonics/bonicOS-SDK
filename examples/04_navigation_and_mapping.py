@@ -16,8 +16,9 @@ integration *inside* an already-entered mapping session. These session
 switches are slow (multi-second ROS launch settle) — expect `enter_*` calls
 to take several seconds.
 
-Named locations (save_location/goto_location/...) are all 🔌 stub in v1 —
-they run without error but don't yet do anything server-side.
+Named locations (save_location/goto_location/...) are live, and map-scoped:
+a location is a pose in a map's frame, so they need a navigation session on
+that map (or an explicit `map=`) to resolve against.
 
 Note: `get_plan()`/`get_costmap()` are only exposed on the grouped
 controller (`robot.nav.get_plan()`), not as flat `robot.*` methods — used
@@ -107,9 +108,16 @@ def main() -> None:
             # (refused with False while one is).
             print("delete_map('example_map') ->", robot.delete_map("example_map"))
 
-        # Named locations — safe to call regardless of series; all stub in v1.
-        robot.save_location("home")
-        print("list_locations() (stub, expect []):", robot.list_locations())
+        # Named locations. These need a map to belong to, so this only does
+        # anything while a navigation session is up — outside one, save
+        # returns False and list comes back empty rather than raising.
+        if robot.get_nav_mode()["mode"] == "navigating":
+            print("save_location('home') ->", robot.save_location("home"))
+            print("list_locations():", robot.list_locations())
+            for place in robot.get_locations():
+                print(f"  {place['name']}: ({place['x']:.2f}, {place['y']:.2f})")
+        else:
+            print("not navigating — locations need a map, skipping")
 
 
 if __name__ == "__main__":
