@@ -368,25 +368,33 @@ they differ per series too — the gripper travels −45°..60° on A/S and
 canned poses (`open_grippers`, `look_left`, …) command values valid on every
 series, so they don't get clamped into a convergence timeout.
 
-### 5.5 Head expression & LED matrix — all 🔌 stub
+### 5.5 Head expression & LED matrix — ✅ live on A series
 
-No ROS path exists yet (these were BLE-only on the old `bonicbot`). Add as
-log + no-op handlers so the API is complete.
+The server packs the `CMD_MATRIX_ACTION` body and publishes it on the series'
+face-matrix topic; the ros2_control plugin forwards those bytes to the ESP
+unchanged. A series with no such topic answers `ok:false` with
+`no LED matrix on series <X>` — never a silent success.
 
 | type | status | fields |
 |---|---|---|
-| `head_mode` | 🔌 stub | `mode` (`normal`/`happy`/`sad`/`angry`/`surprised`/`confused`) |
-| `head_look` | 🔌 stub | `pan?`, `tilt?`, `speed?` |
-| `display_text` | 🔌 stub | `text` |
-| `display_color` | 🔌 stub | `r`, `g`, `b` |
-| `display_animation` | 🔌 stub | `mode` |
-| `display_brightness` | 🔌 stub | `value` |
-| `display_clear` | 🔌 stub | — |
+| `head_mode` | ✅ | `mode` (`normal`/`happy`/`sad`/`angry`/`surprised`/`confused`) |
+| `head_look` | ✅ | `pan?`, `tilt?` (**radians**), `duration?`; `speed?` accepted and ignored |
+| `display_text` | ✅ | `text` (ASCII) |
+| `display_color` | ✅ | `r`, `g`, `b` (0-255) |
+| `display_animation` | ✅ | `mode` — a name, `"play"`/`"pause"`, or a raw firmware index |
+| `display_brightness` | ✅ | `value` (0-255) |
+| `display_clear` | ✅ | — |
 
-> `head_look` (pan/tilt) *may* be realizable through `servo_command`'s head
-> controller group where a robot has head servos — implementers should prefer
-> that path over a stub where the controller exists; keep the wire command
-> name stable regardless.
+`head_mode` acks carry `substituted` when the requested expression has no face
+in firmware and an approximation went out instead (`surprised` -> a heart,
+`confused` -> a colour effect). Clients must surface it rather than treat the
+call as an exact success.
+
+`head_look` goes through `servo_command`'s head controller group, as this
+section always anticipated. It carries radians like every other joint command
+— the SDK converts from its own degrees boundary — and reports axes the robot
+does not fit in `unsupported`, the same way `servo_command` does. A2 fits neck
+yaw but no neck pitch, so `tilt` comes back unsupported there.
 
 ### 5.6 Speech — `speak` (model-topology-aware)
 

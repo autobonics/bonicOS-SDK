@@ -73,7 +73,7 @@ def test_wait_for_update_returns_true_and_advances_time_single_threaded(
 def test_servo_command_converges_and_reads_back_in_camelcase(sim: SimTransport) -> None:
     robot = FakeRobot(sim)
     assert (
-        robot.arm.move_left_arm(shoulder=45, elbow=-30, duration=0.05, timeout=1.0)
+        robot.arm.move_left_arm(shoulder=45, elbow=30, duration=0.05, timeout=1.0)
         is True
     )
     # `move_left_arm` returns as soon as it's within its own convergence
@@ -84,7 +84,7 @@ def test_servo_command_converges_and_reads_back_in_camelcase(sim: SimTransport) 
     sim.wait_for_update(0.0)
     angles = robot.arm.get_servo_angles()  # camelCase — same keys the call used
     assert angles["leftShoulderPitch"] == pytest.approx(45.0, abs=0.5)
-    assert angles["leftElbow"] == pytest.approx(-30.0, abs=0.5)
+    assert angles["leftElbow"] == pytest.approx(30.0, abs=0.5)
 
 
 def test_servo_ramp_is_preempted_by_a_new_target(sim: SimTransport) -> None:

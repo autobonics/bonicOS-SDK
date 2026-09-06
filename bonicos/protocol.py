@@ -354,3 +354,27 @@ JOINT_GROUP_OF = {key: group for group, keys in JOINT_GROUPS.items() for key in 
 #: table. It exists so a canned pose isn't a guaranteed timeout.
 GRIPPER_RANGE_DEG = (-45.0, 60.0)  # A/S -45..60, M -60..60
 NECK_YAW_RANGE_DEG = (-90.0, 90.0)  # same on every series
+
+#: Elbow, whose travel is one-sided and **flipped sign on 2026-09-05**.
+#:
+#: It used to run -50..0 (A), -90..0 (S), -110..0 (M) — zero was the arm
+#: straight and every reachable angle was negative. bonicOS-firmware
+#: ``678dc38`` ("invert elbow servo range") turned it around, so the same
+#: motion is now 0..50 / 0..90 / 0..110 with zero still straight. Nothing
+#: about the hardware moved; only the number that describes it did.
+#:
+#: **Anything holding a stored negative elbow angle now means "straight".**
+#: A saved sequence, a lesson worksheet or an old snippet written against the
+#: previous range clamps at the 0 end and the arm simply does not bend — it
+#: does not error, which is what makes this worth writing down. The tuple
+#: below is the A range, i.e. the intersection valid on every series; S and M
+#: bend further in the same direction.
+#: **The ROS lane has not caught up.** Both URDFs still declare the OLD range —
+#: `bonicbot-a2-ros` ``body.xacro`` has ``lower="-0.873" upper="0"`` and
+#: `bonicOS-m1-ros` ``lower="-1.9199" upper="0.0"``. ros2_control clamps a
+#: trajectory to the URDF, so on a Pro robot a positive elbow is clamped to 0
+#: by ROS while a negative one is clamped to 0 by the ESP: until those two
+#: files are re-signed, the elbow does not move through the ROS path at all
+#: and ``wait=True`` times out. Not fixable in the SDK — the SDK does not
+#: clamp, and clamping is not what is wrong.
+ELBOW_RANGE_DEG = (0.0, 50.0)  # A 0..50, S 0..90, M 0..110

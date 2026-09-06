@@ -57,7 +57,7 @@ from .controllers import (
     SensorsController,
     SystemController,
 )
-from .enums import HeadMode
+from .enums import DisplayAnimation, HeadMode
 from .exceptions import ConnectionError as BonicConnectionError
 from .transports.base import Frame, Transport
 
@@ -490,8 +490,10 @@ class BonicBot:
         pan: Optional[float] = None,
         tilt: Optional[float] = None,
         speed: Optional[float] = None,
+        *,
+        duration: float = 1.0,
     ) -> bool:
-        return self.head.look(pan, tilt, speed)
+        return self.head.look(pan, tilt, speed, duration=duration)
 
     def set_display_text(self, text: str) -> bool:
         return self.head.set_display_text(text)
@@ -499,7 +501,7 @@ class BonicBot:
     def set_display_color(self, r: int, g: int, b: int) -> bool:
         return self.head.set_display_color(r, g, b)
 
-    def set_display_animation(self, mode: str) -> bool:
+    def set_display_animation(self, mode: Union[DisplayAnimation, str, int]) -> bool:
         return self.head.set_display_animation(mode)
 
     def play_display(self) -> bool:

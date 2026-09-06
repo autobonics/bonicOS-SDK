@@ -47,7 +47,12 @@ class ServoID(str, Enum):
 
 
 class HeadMode(str, Enum):
-    """Head expression mode for ``set_expression()`` (API.md §6, stub in v1)."""
+    """Head expression mode for ``set_expression()`` (API.md §6).
+
+    SURPRISED and CONFUSED have no face in the robot's firmware and show a
+    heart and a colour effect respectively; ``set_expression`` warns when it
+    substitutes one. The other four are real faces.
+    """
 
     NORMAL = "normal"
     HAPPY = "happy"
@@ -55,3 +60,35 @@ class HeadMode(str, Enum):
     ANGRY = "angry"
     SURPRISED = "surprised"
     CONFUSED = "confused"
+
+
+class DisplayAnimation(str, Enum):
+    """Named LED-matrix animation for ``set_display_animation()``.
+
+    Values are the names ``robot_app`` resolves against its own
+    ``ANIMATION_MODES`` table (``bonicOS-robot-app/app/core/led_matrix.py``),
+    which mirrors the firmware's ``LedMatrixAnimationMode`` enum
+    (``bonicOS-firmware/include/led_matrix.h``). The wire also accepts a raw
+    integer index for anything this table has not named yet, so a firmware
+    animation added later needs no SDK release to reach.
+
+    ``SAD``/``LOVE``/``HAPPY``/``ANGRY`` are the same faces
+    :class:`HeadMode` reaches; ``set_expression`` is the friendlier way in.
+    ``MANUAL_PAINT`` is the blank canvas ``clear_display()`` leaves behind.
+    """
+
+    STATIC_TEXT = "static_text"
+    SCROLLING_TEXT = "scrolling_text"
+    RAINBOW_WAVE = "rainbow_wave"
+    FIRE = "fire"
+    PLASMA = "plasma"
+    MATRIX_RAIN = "matrix_rain"
+    CUSTOM_PATTERN = "custom_pattern"
+    ROSE_COLOR_WAVE = "rose_color_wave"
+    CUSTOM_ANIMATION = "custom_animation"
+    SAD = "sad"
+    LOVE = "love"
+    HAPPY = "happy"
+    ANGRY = "angry"
+    MANUAL_PAINT = "manual_paint"
+    BATTERY = "battery"

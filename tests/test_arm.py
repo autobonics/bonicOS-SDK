@@ -15,11 +15,11 @@ from bonicos.enums import ServoID
 
 
 def test_set_servos_converts_degrees_to_radians(robot, transport) -> None:
-    assert robot.arm.set_servos({"leftElbow": -30.0}, duration=2.0, wait=False) is True
+    assert robot.arm.set_servos({"leftElbow": 30.0}, duration=2.0, wait=False) is True
     sent = transport.sent[-1]
     assert sent["type"] == protocol.CMD_SERVO_COMMAND
     assert sent["duration"] == 2.0
-    assert math.isclose(sent["servos"]["leftElbow"], math.radians(-30.0))
+    assert math.isclose(sent["servos"]["leftElbow"], math.radians(30.0))
 
 
 def test_move_left_arm_sends_only_what_was_asked_without_telemetry(
@@ -29,19 +29,19 @@ def test_move_left_arm_sends_only_what_was_asked_without_telemetry(
     # command goes out as written rather than inventing 0.0 for the siblings:
     # robot_app has its own last-sample fill and refuses to move a joint it
     # has never seen, and the SDK must not smuggle a 0.0 past that guard.
-    robot.arm.move_left_arm(shoulder=90, elbow=-30, wait=False)
+    robot.arm.move_left_arm(shoulder=90, elbow=30, wait=False)
     servos = transport.sent[-1]["servos"]
     assert set(servos) == {
         ServoID.LEFT_SHOULDER_PITCH.value,
         ServoID.LEFT_ELBOW.value,
     }
     assert math.isclose(servos[ServoID.LEFT_SHOULDER_PITCH.value], math.radians(90))
-    assert math.isclose(servos[ServoID.LEFT_ELBOW.value], math.radians(-30))
+    assert math.isclose(servos[ServoID.LEFT_ELBOW.value], math.radians(30))
 
 
 def test_move_right_arm_no_wait_does_not_block_for_ack(robot, transport) -> None:
     # No ack scripted at all — if this waited for one it would raise.
-    assert robot.arm.move_right_arm(shoulder=10, elbow=-10, wait=False) is True
+    assert robot.arm.move_right_arm(shoulder=10, elbow=10, wait=False) is True
     assert transport.sent[-1]["type"] == protocol.CMD_SERVO_COMMAND
 
 
@@ -85,7 +85,7 @@ def test_move_left_arm_wait_true_blocks_until_convergence(robot, transport) -> N
                     0.0,
                     0.0,
                     math.radians(90),
-                    math.radians(-30),
+                    math.radians(30),
                     0.0,
                     0.0,
                     0.0,
@@ -94,14 +94,14 @@ def test_move_left_arm_wait_true_blocks_until_convergence(robot, transport) -> N
         )
 
     threading.Thread(target=updater, daemon=True).start()
-    assert robot.arm.move_left_arm(shoulder=90, elbow=-30, timeout=2.0) is True
+    assert robot.arm.move_left_arm(shoulder=90, elbow=30, timeout=2.0) is True
 
 
 def test_move_left_arm_wait_true_times_out_if_never_converges(robot, transport) -> None:
     transport.script_ack(protocol.CMD_SERVO_COMMAND, {"ok": True, "unknown": []})
     # No matching telemetry ever arrives — must time out, not hang.
     start = time.monotonic()
-    assert robot.arm.move_left_arm(shoulder=90, elbow=-30, timeout=0.2) is False
+    assert robot.arm.move_left_arm(shoulder=90, elbow=30, timeout=0.2) is False
     assert time.monotonic() - start < 1.0
 
 
@@ -110,7 +110,7 @@ def test_send_servo_command_returns_false_fast_when_ack_not_ok(
 ) -> None:
     transport.script_ack(protocol.CMD_SERVO_COMMAND, {"ok": False})
     start = time.monotonic()
-    assert robot.arm.set_servos({"leftElbow": -30.0}, timeout=5.0) is False
+    assert robot.arm.set_servos({"leftElbow": 30.0}, timeout=5.0) is False
     # Must short-circuit on the failed ack, never enter the convergence poll.
     assert time.monotonic() - start < 1.0
 
@@ -139,12 +139,12 @@ def test_send_servo_command_excludes_unknown_keys_from_convergence(
                     "left_wrist_pitch_joint",
                     "left_gripper_yaw_joint",
                 ],
-                "position": [0.0, 0.0, 0.0, math.radians(-30), 0.0, 0.0, 0.0],
+                "position": [0.0, 0.0, 0.0, math.radians(30), 0.0, 0.0, 0.0],
             },
         )
 
     threading.Thread(target=updater, daemon=True).start()
-    assert robot.arm.set_servos({"leftElbow": -30.0, "bogus": 1.0}, timeout=2.0) is True
+    assert robot.arm.set_servos({"leftElbow": 30.0, "bogus": 1.0}, timeout=2.0) is True
 
 
 def test_send_servo_command_all_unknown_keys_returns_true_without_waiting(
@@ -179,7 +179,7 @@ def test_fill_group_holds_unspecified_joints_at_current_position(
     reported = {key: 0.0 for key in protocol.JOINT_GROUPS["left_arm"]}
     reported[ServoID.LEFT_SHOULDER_YAW.value] = 15.0
     transport.set_telemetry("joint_states", _joint_states(**reported))
-    robot.arm.move_left_arm(shoulder=90, elbow=-30, wait=False)
+    robot.arm.move_left_arm(shoulder=90, elbow=30, wait=False)
     servos = transport.sent[-1]["servos"]
     assert set(servos) == set(protocol.JOINT_GROUPS["left_arm"])
     # Not overwritten by the fill — held at its last known real position.
@@ -211,7 +211,7 @@ def test_fill_group_is_scoped_to_the_joints_this_robot_reports(
             }
         ),
     )
-    robot.arm.move_left_arm(shoulder=90, elbow=-30, wait=False)
+    robot.arm.move_left_arm(shoulder=90, elbow=30, wait=False)
     servos = transport.sent[-1]["servos"]
     assert set(servos) == {
         ServoID.LEFT_SHOULDER_PITCH.value,
@@ -241,7 +241,7 @@ def test_unsupported_joints_do_not_block_convergence(robot, transport) -> None:
     time out the whole call even though every fitted joint arrived.
     """
     transport.set_telemetry(
-        "joint_states", _joint_states(**{ServoID.LEFT_ELBOW.value: -30.0})
+        "joint_states", _joint_states(**{ServoID.LEFT_ELBOW.value: 30.0})
     )
     transport.script_ack(
         protocol.CMD_SERVO_COMMAND,
@@ -250,7 +250,7 @@ def test_unsupported_joints_do_not_block_convergence(robot, transport) -> None:
     start = time.monotonic()
     assert (
         robot.arm.set_servos(
-            {ServoID.LEFT_ELBOW.value: -30.0, "leftWristPitch": 10.0}, timeout=5.0
+            {ServoID.LEFT_ELBOW.value: 30.0, "leftWristPitch": 10.0}, timeout=5.0
         )
         is True
     )

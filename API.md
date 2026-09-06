@@ -262,7 +262,7 @@ reported by the server (`unsupported`) and skipped rather than waited on.
 
 | Method | Description |
 |---|---|
-| `robot.set_servos(angles: dict, duration=1.0, wait=True, timeout=None) -> bool` | Set multiple joints, e.g. `{"leftElbow": -30, "neckYaw": 20}`. |
+| `robot.set_servos(angles: dict, duration=1.0, wait=True, timeout=None) -> bool` | Set multiple joints, e.g. `{"leftElbow": 30, "neckYaw": 20}`. |
 | `robot.move_left_arm(shoulder, elbow, wait=True, duration=1.0, timeout=None) -> bool` | Left arm shorthand. |
 | `robot.move_right_arm(shoulder, elbow, wait=True, duration=1.0, timeout=None) -> bool` | Right arm shorthand. |
 | `robot.set_grippers(left, right) -> bool` | Both grippers (degrees). |
@@ -274,6 +274,23 @@ reported by the server (`unsupported`) and skipped rather than waited on.
 
 `ServoID` (§11) enumerates the exact 18 registry keys — the M1's real joint
 set, not the old BLE-hardware set it was originally ported from.
+
+> **Elbow angles are positive as of 2026-09-05.** Elbow travel is one-sided,
+> and bonicOS-firmware `678dc38` flipped which side: it ran −50..0 (A), −90..0
+> (S), −110..0 (M) and now runs 0..50 / 0..90 / 0..110, with 0 still the arm
+> straight. The motion is identical; only the sign changed. **Code written
+> against the old range does not error — it clamps at 0 and the arm never
+> bends**, so `move_left_arm(shoulder=60, elbow=-30)` now means "hold the arm
+> straight". Update saved sequences and worksheets, not just source.
+> `protocol.ELBOW_RANGE_DEG` carries the range valid on every series.
+> **The ROS lane has not caught up.** Both URDFs still declare the old range —
+> `bonicbot-a2-ros`'s `body.xacro` has `lower="-0.873" upper="0"`, `bonicOS-m1-ros`
+> has `lower="-1.9199" upper="0.0"`. ros2_control clamps a trajectory to the
+> URDF, so on a Pro robot a **positive** elbow is clamped to 0 by ROS while a
+> **negative** one is clamped to 0 by the ESP — until those files are re-signed
+> the elbow does not move through the ROS path at all, and `wait=True` times
+> out. The SDK cannot paper over this: it does not clamp user angles, and
+> clamping is not what is wrong.
 
 > **`wait=True` means the arm actually arrived, not just that the server
 > acked the command** (fixed 2026-08-04 — the
@@ -307,24 +324,48 @@ Grouped access: `robot.arm.*`.
 
 ---
 
-## 6. Head expression & display — **all 🔌 stub in v1**
+## 6. Head expression & display — **✅ live on A series**
 
-Carried from the old BLE SDK; no ROS path yet, so these are safe no-ops until the
-robot side lands (PROTOCOL §5.5).
+Live on both Lite and Pro. On Pro the path is robot_app -> `/face/matrix_action`
+-> the ros2_control plugin -> `CMD_MATRIX_ACTION` over USB CDC to the ESP.
 
-> **On Lite: ✅ fully live — this section is more capable on Lite than on Pro.**
-> The LED matrix and head expression are driven directly, so if you're writing
-> material around expressions or the display, Lite is the stronger platform
-> today. The 🔌 markers above apply to Pro only.
+> **Needs the base stack up.** The plugin owns `/dev/esp` and only one process
+> may hold it, so with the stack down there is no path to the display at all.
+> A series with no LED matrix (M1 has no subscriber for the topic) answers with
+> an error rather than a silent success.
 
 | Method | Description |
 |---|---|
 | `robot.set_expression(mode)` | `"normal"/"happy"/"sad"/"angry"/"surprised"/"confused"` (`HeadMode` enum). |
-| `robot.look(pan=None, tilt=None, speed=None)` | Head pan/tilt (prefers the head controller group where it exists). |
-| `robot.set_display_text(text)` | LED-matrix text. |
-| `robot.set_display_color(r, g, b)` | Matrix color. |
-| `robot.set_display_animation(mode)` / `play_display()` / `pause_display()` / `clear_display()` | Matrix animation control. |
-| `robot.set_display_brightness(value)` | Matrix brightness. |
+| `robot.look(pan=None, tilt=None, speed=None, *, duration=1.0)` | Neck pan/tilt in **degrees**, via the head controller group. |
+| `robot.set_display_text(text)` | LED-matrix text (ASCII; the panel font has nothing else). |
+| `robot.set_display_color(r, g, b)` | Matrix color, 0-255 per channel. |
+| `robot.set_display_animation(mode)` / `play_display()` / `pause_display()` / `clear_display()` | Matrix animation control. A `DisplayAnimation` member, its bare name, or a raw firmware index. |
+| `robot.set_display_brightness(value)` | Matrix brightness, **0-255** — not a 0..1 fraction. |
+
+**Two expressions are approximations.** Firmware has no `surprised` or
+`confused` face, so they show a heart and a colour effect respectively. The
+robot reports the substitution and `set_expression` raises a `UserWarning`
+saying which — don't build material around either without checking what the
+panel actually does.
+
+**Animation names come from `DisplayAnimation`** — `static_text`,
+`scrolling_text`, `rainbow_wave`, `fire`, `plasma`, `matrix_rain`,
+`custom_pattern`, `rose_color_wave`, `custom_animation`, `sad`, `love`,
+`happy`, `angry`, `manual_paint`, `battery`. A bare string works, and a raw
+int is passed through as a firmware animation index for anything the enum
+does not name yet. An unknown name is refused, with the list the robot knows.
+
+**A refused display command warns rather than returning a bare `False`.** The
+robot answers "no LED matrix on this series" or "the base stack is down"
+inside a normal ack, not a protocol error, so `CommandError` is not raised —
+the SDK re-raises the robot's sentence as a `UserWarning`, since when the
+panel stays dark that sentence is the whole diagnosis.
+
+**`look` returns False when nothing moved.** `tilt` is neck pitch, which an A2
+does not fit; asking for tilt alone on one returns False rather than a success
+for motion that never happened. `speed` is accepted but ignored by the robot
+(position groups take a time, not a rate) — use `duration`.
 
 Grouped access: `robot.head.*`.
 
@@ -462,6 +503,7 @@ Grouped access: `robot.system.*`.
 
 ```python
 from bonicos import HeadMode, ServoID          # enums (trimmed to core)
+from bonicos import DisplayAnimation           # LED-matrix animation names
 from bonicos import (
     RobotError,            # base
     ConnectionError,       # connect/handshake failed
@@ -496,14 +538,13 @@ with BonicBot("192.168.1.50") as robot:
     robot.speak("Patrol complete")
 ```
 
-**Navigate to a saved place, then gesture** (locations/head are 🔌 stub — runs,
-but only navigation moves the robot in v1)
+**Navigate to a saved place, then gesture**
 
 ```python
 with BonicBot() as robot:                       # autodiscovery
     robot.goto_location("kitchen")              # blocks until arrival — Pro only
-    robot.set_expression("happy")               # no-op in v1
-    robot.move_right_arm(shoulder=90, elbow=-30)
+    robot.set_expression("happy")               # A series; needs the base stack up
+    robot.move_right_arm(shoulder=90, elbow=30)
 ```
 
 **One program on either model** — catch the error rather than asking the robot

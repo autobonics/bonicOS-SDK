@@ -13,7 +13,7 @@ from bonicos import BonicBot
 
 with BonicBot("192.168.1.50") as robot:
     robot.move_forward(speed=0.3, duration=2)
-    robot.move_left_arm(shoulder=45, elbow=-30)
+    robot.move_left_arm(shoulder=45, elbow=30)
     print(robot.get_battery(), "V")
 # motors stopped and the connection closed, even on an exception
 ```
@@ -85,8 +85,14 @@ Your code runs; that actuator just doesn't move. They are marked **🔌 stub** i
 [API.md](./API.md):
 
 - Nav2 lifecycle — `start_navigation`, `stop_navigation`
-- `servo_single`, head expression (`head_mode`, `head_look`), and the LED
-  matrix (`display_*`)
+- `servo_single`
+
+Head expression and the LED matrix (`set_expression`, `look`, `display_*`) are
+**live on A series** as of robot_app's face-matrix path. They need the base
+stack up, and a series with no matrix answers with an error rather than
+pretending. Two expressions — `surprised` and `confused` — have no face in
+firmware and show a heart and a colour effect; `set_expression` warns when it
+substitutes one.
 
 Everything else in the table above is live. Vision pipelines (face/pose/object
 detection), autonomous exploration, and recorded sequences are not in this

@@ -4,6 +4,78 @@ All notable changes to `bonicos`. This project follows
 [Semantic Versioning](https://semver.org/); while on `0.x`, breaking changes
 bump the minor version.
 
+## [Unreleased]
+
+## [0.7.0] — 2026-09-06
+
+The head is real. `bonicOS-robot-app` grew the face-matrix path, and
+`bonicOS-firmware` flipped the elbow's sign — this release catches the SDK up
+to both.
+
+### Added
+
+- **The head expression and LED matrix API is live on A series.** API.md §6 was
+  a documented no-op ("all 🔌 stub in v1"); `bonicOS-robot-app` now packs the
+  `CMD_MATRIX_ACTION` body and publishes it to the ros2_control plugin, which
+  forwards it to the ESP. No SDK method changed name or signature — they were
+  always sending real commands — but they now do something. Needs the base
+  stack up, since the plugin owns `/dev/esp`.
+- `look()` takes a keyword-only `duration` (seconds). `speed` is still accepted
+  positionally so the published signature keeps working, but the robot ignores
+  it: ros2_control position groups take a time, not a rate.
+- **`DisplayAnimation`** (exported from `bonicos`) names the fifteen animations
+  the matrix can play — `rainbow_wave`, `fire`, `plasma`, `matrix_rain`,
+  `battery`, the four faces, and the rest. `set_display_animation()` takes a
+  member, a bare string, or a raw firmware index for anything the enum has not
+  named yet. Values mirror `robot_app`'s `ANIMATION_MODES`, which mirrors the
+  firmware enum; a test pins them together.
+- **`protocol.ELBOW_RANGE_DEG`**, and the note explaining why it exists.
+
+### Fixed
+
+- **`look(pan=30)` asked the robot for 30 radians.** `head.look()` forwarded its
+  arguments to the wire unconverted while API.md §5 promises degrees at the API
+  boundary — `arm.set_neck()` converts, `head.look()` did not. Harmless while
+  the server was a stub; a 1718° neck command the moment it wasn't. Now
+  converted here, like every other angle in the SDK.
+- **`look()` reported success for motion that never happened.** Asking for
+  `tilt` alone on an A2 — which fits neck yaw but no neck pitch — returned
+  `True`. It now returns `False` when the robot drove none of the axes asked
+  for, and `True` when at least one moved.
+- **A refused display command threw away the robot's reason.** "No LED matrix
+  on this series" and "the base stack is down" come back as `ok: False` plus an
+  `error` inside a NORMAL ack, not a protocol-level error, so nothing raised
+  and the caller was left with a bare `False`. The sentence is now re-raised as
+  a `UserWarning` — when the panel stays dark, it is the whole diagnosis.
+
+### Changed
+
+- `set_expression()` raises a `UserWarning` when the robot substitutes an
+  expression it has no face for. Firmware has no `surprised` or `confused`
+  face; those show a heart and a colour effect. The call still succeeds — the
+  warning is so nobody builds material around a face the robot cannot make.
+- **Elbow angles are positive now.** bonicOS-firmware `678dc38` inverted the
+  elbow servo range: it ran −50..0 (A), −90..0 (S), −110..0 (M) and now runs
+  0..50 / 0..90 / 0..110, with 0 still the arm straight. The motion is
+  unchanged; the sign that describes it is not. Docs, examples and tests
+  throughout the SDK now use positive elbow angles.
+
+  **This is a silent break for anything holding a stored negative elbow
+  angle** — a saved sequence, a worksheet, an old snippet. It does not error;
+  it clamps at 0, so the arm simply never bends and
+  `move_left_arm(shoulder=60, elbow=-30)` now means "hold the arm straight".
+  The SDK deliberately does not clamp or rewrite user angles (PROTOCOL.md
+  §3.1 — the ESP and the URDF enforce their own limits), so this cannot be
+  fixed for you at the SDK boundary. Update the stored values.
+
+  **Known gap, outside this repo: the ROS lane has not caught up.** Both URDFs
+  still declare the old range (`bonicbot-a2-ros` `body.xacro`
+  `lower="-0.873" upper="0"`, `bonicOS-m1-ros` `lower="-1.9199" upper="0.0"`).
+  ros2_control clamps to the URDF, so on a Pro robot a positive elbow is
+  clamped to 0 by ROS and a negative one is clamped to 0 by the ESP — the
+  elbow does not move through the ROS path either way until those two files
+  are re-signed.
+
 ## [0.6.0] — 2026-09-04
 
 Catch-up with `bonicOS-robot-app`'s `dev-ma-01-unify-robot-series` merge, which

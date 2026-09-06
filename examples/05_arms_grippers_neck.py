@@ -31,12 +31,14 @@ def main() -> None:
         ok = robot.set_servos({"leftShoulderPitch": 45, "neckYaw": 20}, duration=1.5)
         print(f"set_servos({{leftShoulderPitch, neckYaw}}) -> {ok}")
 
-        # Arm shorthands (shoulder, elbow) — elbow kept <= 0 per the
-        # registry's range (a positive elbow target won't move on M1).
-        ok = robot.move_left_arm(shoulder=60, elbow=-30)
-        print(f"move_left_arm(60, -30) -> {ok}")
-        ok = robot.move_right_arm(shoulder=60, elbow=-30)
-        print(f"move_right_arm(60, -30) -> {ok}")
+        # Arm shorthands (shoulder, elbow). Elbow travel is one-sided and
+        # POSITIVE — 0 is the arm straight, 50 is as far as an A bends
+        # (S 90, M 110). It was negative until firmware 678dc38 flipped it;
+        # an old snippet asking for -30 now clamps to 0 and just doesn't bend.
+        ok = robot.move_left_arm(shoulder=60, elbow=30)
+        print(f"move_left_arm(60, 30) -> {ok}")
+        ok = robot.move_right_arm(shoulder=60, elbow=30)
+        print(f"move_right_arm(60, 30) -> {ok}")
 
         # Grippers.
         robot.open_grippers()
@@ -50,7 +52,7 @@ def main() -> None:
         robot.set_neck(yaw=15)
 
         # Longer duration + an explicit convergence timeout.
-        ok = robot.move_left_arm(shoulder=30, elbow=-10, duration=2.0, timeout=8.0)
+        ok = robot.move_left_arm(shoulder=30, elbow=10, duration=2.0, timeout=8.0)
         print(f"move_left_arm(duration=2.0, timeout=8.0) -> {ok}")
 
         # Read back current joint positions (registry camelCase keys, the
@@ -62,7 +64,7 @@ def main() -> None:
         # Fire-and-forget: a second command to the same group preempts the
         # first mid-trajectory rather than queuing — safe to chain quickly.
         robot.move_right_arm(shoulder=0, elbow=0, wait=False)
-        robot.move_right_arm(shoulder=90, elbow=-45, wait=False)
+        robot.move_right_arm(shoulder=90, elbow=45, wait=False)
 
         robot.reset_servos()
         print("All 18 registry joints reset to neutral.")

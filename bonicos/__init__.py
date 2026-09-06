@@ -4,7 +4,7 @@ Nothing heavy is imported here: :class:`BonicBot` imports its transport
 lazily, inside the constructor, so ``import bonicos`` stays cheap.
 """
 
-from .enums import HeadMode, ServoID
+from .enums import DisplayAnimation, HeadMode, ServoID
 from .exceptions import (
     CommandError,
     ConnectionError,
@@ -14,12 +14,13 @@ from .exceptions import (
 from .protocol import PROTOCOL_VERSION
 from .robot import BonicBot, use_transport
 
-__version__ = "0.6.0"
+__version__ = "0.7.0"
 
 __all__ = [
     "BonicBot",
     "use_transport",
     "HeadMode",
+    "DisplayAnimation",
     "ServoID",
     "RobotError",
     "ConnectionError",
