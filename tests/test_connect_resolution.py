@@ -48,8 +48,8 @@ def ws_args(monkeypatch):
     captured: dict = {}
 
     class _FakeWs:
-        def __init__(self, host, *, robot_id=None, token=None):
-            captured.update(host=host, robot_id=robot_id, token=token)
+        def __init__(self, host, *, robot_id=None, token=None, uds=None):
+            captured.update(host=host, robot_id=robot_id, token=token, uds=uds)
 
         def connect(self, timeout):
             return {
@@ -96,7 +96,8 @@ def test_bare_host_needs_no_robot_id(monkeypatch, ws_args):
     """robot_id is optional — a plain host is a complete, working call."""
     BonicBot("192.168.1.50")
 
-    assert ws_args == {"host": "192.168.1.50", "robot_id": None, "token": None}
+    assert ws_args == {"host": "192.168.1.50", "robot_id": None, "token": None,
+                       "uds": None}
 
 
 def test_env_supplies_host_and_robot_id(monkeypatch, ws_args):
@@ -106,7 +107,8 @@ def test_env_supplies_host_and_robot_id(monkeypatch, ws_args):
 
     robot = BonicBot()
 
-    assert ws_args == {"host": "127.0.0.1", "robot_id": "M1_001", "token": None}
+    assert ws_args == {"host": "127.0.0.1", "robot_id": "M1_001", "token": None,
+                       "uds": None}
     assert robot.robot_id == "M1_001"
 
 
@@ -180,3 +182,43 @@ def test_use_transport_none_restores_normal_resolution(monkeypatch):
 
     with pytest.raises(BonicConnectionError):
         BonicBot()
+
+
+# ── the on-robot runner's unix-socket lane ───────────────────────────
+
+def test_uds_env_selects_the_unix_socket_lane(monkeypatch, ws_args):
+    """Inside the run_code sandbox there is no network namespace, so
+    `BONICOS_UDS` is how a bare `BonicBot()` reaches robot_app at all."""
+    monkeypatch.setenv("BONICOS_UDS", "/run/bonic/robot_app.sock")
+    monkeypatch.setenv("BONICOS_ROBOT_ID", "A2_001")
+    BonicBot()
+    assert ws_args["uds"] == "/run/bonic/robot_app.sock"
+    assert ws_args["robot_id"] == "A2_001"
+
+
+def test_uds_is_checked_before_host(monkeypatch, ws_args):
+    """Both set (a dev shell on the robot) — the socket wins, because it is
+    the one that resolves from inside the sandbox."""
+    monkeypatch.setenv("BONICOS_UDS", "/run/bonic/robot_app.sock")
+    monkeypatch.setenv("BONICOS_HOST", "127.0.0.1")
+    BonicBot()
+    assert ws_args["uds"] == "/run/bonic/robot_app.sock"
+
+
+def test_explicit_host_argument_overrides_the_ambient_socket(monkeypatch, ws_args):
+    """An explicit host= is a deliberate override — user code that names a
+    second robot must not be silently redirected to the local socket."""
+    monkeypatch.setenv("BONICOS_UDS", "/run/bonic/robot_app.sock")
+    BonicBot("192.168.1.50")
+    assert ws_args["uds"] is None
+    assert ws_args["host"] == "192.168.1.50"
+
+
+def test_uds_url_carries_the_path_and_query_not_a_host(monkeypatch):
+    """The server routes on /ws?robotId=; over a socket the authority is a
+    placeholder the server ignores."""
+    from bonicos.transports.websocket import WebSocketTransport
+    t = WebSocketTransport("127.0.0.1", robot_id="A2_001", uds="/run/bonic/s.sock")
+    assert t._build_url() == "ws://localhost/ws?robotId=A2_001"
+    t_tcp = WebSocketTransport("192.168.1.50", robot_id="A2_001")
+    assert t_tcp._build_url() == "ws://192.168.1.50:8080/ws?robotId=A2_001"

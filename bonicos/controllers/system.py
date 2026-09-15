@@ -87,15 +87,56 @@ class SystemController(ControllerBase):
         """
         return self._latest(protocol.EVENT_SESSION_HEALTH)
 
+    def shutdown(self, timeout: float = 15.0) -> bool:
+        """Power the robot off.
+
+        Not a stack teardown — this halts the companion computer itself, and
+        where the robot's ESP lane can be reached it also cuts the power
+        latch, so the robot ends up genuinely off rather than halted but still
+        drawing current. Someone has to press the button to bring it back.
+
+        Deliberately asks nothing first: by the time a program calls this it
+        has decided. Idempotent — a second call while one is in flight is
+        answered ``True`` rather than starting a second poweroff.
+
+        The ack is all there is. The process answering is the one being
+        halted, so nothing reports the machine actually going down; expect the
+        connection to drop shortly after this returns.
+        """
+        result = self._command({"type": protocol.CMD_SHUTDOWN}, timeout=timeout)
+        return bool(result.get("ok", False))
+
     def reconfig_wifi(self, ssid: str, password: str) -> bool:
         result = self._command(
             {"type": protocol.CMD_RECONFIG_WIFI, "ssid": ssid, "password": password}
         )
         return bool(result.get("ok", False))
 
-    def trigger_update(self) -> bool:
-        result = self._command({"type": protocol.CMD_TRIGGER_UPDATE})
-        return bool(result.get("ok", False))
+    def update_status(self) -> Dict[str, Any]:
+        """Ask the robot's host what it knows about updates, now:
+        ``{"state", "phase", "percent", "version", "reported_version",
+        "previous_version", "last_update", ...}``.
+
+        ``state`` is ``installing``, ``rolling_back``, ``idle``, or
+        ``unavailable`` — the last meaning there is no bonic-host to ask,
+        which is normal on a bare-metal robot or a dev laptop and is not an
+        update failure.
+
+        This is the read that survives the restart an install causes: the
+        cached telemetry from before the swap belongs to a connection that no
+        longer exists, so after reconnecting, ask.
+        """
+        return self._command({"type": protocol.CMD_UPDATE_STATUS})
+
+    def get_update_status(self) -> Optional[Dict[str, Any]]:
+        """Latest cached ``update_progress`` telemetry, or ``None`` if the
+        robot has said nothing about updates this session.
+
+        Replayed on auth, so a client connecting to a robot that has just
+        been updated — or rolled back — learns that immediately. Pushed only
+        while an install runs; use ``update_status()`` for a fresh read.
+        """
+        return self._latest(protocol.EVENT_UPDATE_PROGRESS)
 
     def speak(self, text: str, voice: Optional[str] = None) -> bool:
         """Say ``text``. The robot decides *where* it's produced (PROTOCOL §5.6)

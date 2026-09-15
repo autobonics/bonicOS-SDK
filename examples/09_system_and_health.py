@@ -1,11 +1,10 @@
-"""System-level calls: health, session status, Wi-Fi, updates (API.md §10).
+"""System-level calls: health, session status, Wi-Fi (API.md §10).
 
 `health()` and `get_session_status()` are safe to run any time.
-`reconfig_wifi()`, `trigger_update()`, and `restart_base_session()` are NOT —
-one can drop the robot off your network, one restarts the robot_app process,
-and one restarts the ROS stack underneath mapping/navigation (~25s+, drops
-any WebRTC video peer) — so this example only prints what they'd look like
-rather than calling them.
+`reconfig_wifi()` and `restart_base_session()` are NOT — one can drop the
+robot off your network, and one restarts the ROS stack underneath
+mapping/navigation (~25s+, drops any WebRTC video peer) — so this example
+only prints what they'd look like rather than calling them.
 """
 
 from bonicos import BonicBot
@@ -28,15 +27,19 @@ def main() -> None:
         # base_session/session_health frame has arrived yet.
         print("system.get_base_session():", robot.system.get_base_session())
         print("system.get_session_health():", robot.system.get_session_health())
+        # What version this robot runs, and how its last update ended —
+        # including one that rolled back while nobody was connected.
+        print("system.update_status():", robot.system.update_status())
 
         print(
-            "Not calling reconfig_wifi()/trigger_update()/restart_base_session() "
-            "here — disruptive to a running robot (network drop / process "
-            "restart / ROS stack restart). Call them yourself when you "
+            "Not calling reconfig_wifi()/restart_base_session()/shutdown() "
+            "here — disruptive to a running robot (network drop / ROS stack "
+            "restart / the machine powering off). Call them yourself when you "
             "actually mean to, e.g.:\n"
             "  robot.reconfig_wifi('my-ssid', 'my-password')\n"
-            "  robot.trigger_update()\n"
-            "  robot.restart_base_session()  # recover a wedged robot"
+            "  robot.restart_base_session()  # recover a wedged robot\n"
+            "  robot.system.shutdown()       # power it off — someone has to "
+            "press the button to get it back"
         )
 
 

@@ -4,7 +4,112 @@ All notable changes to `bonicos`. This project follows
 [Semantic Versioning](https://semver.org/); while on `0.x`, breaking changes
 bump the minor version.
 
-## [Unreleased]
+## [0.9.0] — 2026-09-15
+
+### Added
+
+- **Unix-socket transport.** `BonicBot()` now resolves `$BONICOS_UDS` before
+  `$BONICOS_HOST`, and `WebSocketTransport` takes a `uds=` path that switches
+  the same wire protocol onto `websockets.sync.client.unix_connect`. Nothing
+  about the protocol changes — only the connect call.
+
+  This is what makes the on-robot `run_code` runner work in the container.
+  Its sandbox runs with no network namespace at all (`bwrap --unshare-net`),
+  so `127.0.0.1:8080` has no loopback to resolve on; a unix socket is a
+  filesystem object, so one bind-mounted socket reaches robot_app while
+  everything else — the LAN, the internet, and bonic-host's API on
+  `127.0.0.1:8090`, which owns wifi, power-off and image installs — stays
+  unreachable. Verified end-to-end on an A2 (aarch64, privileged container):
+  `unix_connect` → uvicorn UDS → FastAPI `/ws`, inside `bwrap --unshare-net`,
+  with `?robotId=` preserved.
+
+  Minor rather than patch because `WebSocketTransport.__init__` grew a
+  keyword — any test double standing in for it needs `uds=None` in its
+  signature.
+
+  An explicit `BonicBot(host=...)` still wins over an ambient `$BONICOS_UDS`:
+  naming a host is a deliberate override. Note it will not resolve from
+  inside the runner sandbox, which is exactly the mistake the env vars exist
+  to prevent.
+
+## [0.8.1] — 2026-09-15
+
+### Fixed
+
+- **`look_right()` turns right.** It sent `neckYaw=-45`, and `look_left()`
+  sent `+45` — backwards, verified against hardware. Both flipped: right is
+  now positive, left is negative. If your code called `set_neck()` directly
+  with an angle copied from watching which way `look_left`/`look_right`
+  turned, that angle now points the opposite way — the shorthands did, and
+  still do, but in the other direction.
+
+  **Released as a distinct version rather than folded into 0.8.0**, even
+  though nothing had shipped: the 0.8.0 wheel had already been built and
+  fetched into a running browser tab (`bonicAI-frontend/public/pyodide/`,
+  cached `immutable` — see `next.config.ts`, which relies on exactly this:
+  the wheel's version is the only thing that busts that cache). Rebuilding
+  `bonicos-0.8.0-py3-none-any.whl` in place with different bytes, same
+  filename, is the one thing that comment says not to do — a tab that had
+  already loaded it would keep the old, still-backwards behavior forever, no
+  matter what shipped afterward under that name. 0.8.0 is left as originally
+  built; this fix needed a URL that hadn't been cached yet.
+
+## [0.8.0] — 2026-09-15
+
+### Added
+
+- **`system.update_status()` and `system.get_update_status()`**, and the
+  `update_progress` telemetry event behind them. An install triggered by the
+  robot's host is minutes long, with no reply until it finishes, so there was
+  previously no way to find out what happened. The robot now pushes the phase
+  and the pull percentage while it downloads, and — because the install
+  replaces the process doing the pushing — replays the outcome (`last_update`:
+  installed, or rolled back, and why) to whatever connects afterwards.
+
+- **`system.shutdown()`** — power the robot off, latch and all. `robot_app`
+  has answered `shutdown` since the power-manager work landed and the SDK had
+  no way to send it, so a program could restart the ROS stack but not the
+  machine under it.
+
+### Changed
+
+- **`health()` is documented as the shape it actually returns** —
+  `cpu_percent` / `ram_percent` / `disk_percent` / `temps`, not `cpu` / `ram`
+  / `temp`, and with no container status: `robot_app` stopped updating itself,
+  so the host owns that now and `update_status()` answers it. No code change
+  — `health()` always returned the robot's dict verbatim — but `API.md`,
+  `PROTOCOL.md` and the simulator all described the old one, and the
+  simulator *served* it, which is the version that could be tested against and
+  still break on hardware.
+
+- **`protocol.ELBOW_RANGE_DEG`'s A-series max is 45, not 50.** `bonicbot-a2-ros`
+  `6098b2d` had already re-signed its URDF to `0..0.785` rad (0..45°) as part
+  of the sign flip; rather than widen the URDF to the SDK's old 50°, the
+  firmware's A-series limit (`servo_config.cpp`, `SERVO_MAX_LIMITS[4]/[11]`)
+  was brought down to 45 to match, and the SDK follows. One number now, not
+  two that disagreed. **Breaking**: `move_left_arm(shoulder=60, elbow=50)` on
+  an A series, which used to reach 50°, now clamps at the URDF's 45° through
+  the ROS path (the SDK itself does not clamp) — update any saved sequence
+  or worksheet holding an A-series elbow angle above 45.
+
+### Fixed
+
+- **The simulator no longer answers `update_status` with a bare `{"ok": True}`.**
+  It reports `state: "unavailable"` — the same thing a real robot says when no
+  bonic-host answers — so `update_status()["state"]` is readable everywhere
+  instead of raising `KeyError` only under simulation. `shutdown()` likewise
+  returns `False` there rather than acking a poweroff that cannot happen.
+
+- **`MockTransport` stopped serving a `features` map in `auth_result`.**
+  Capability gating was removed in 0.5.0 and the robot has not sent one since;
+  the mock kept teaching tests a shape that no longer exists.
+
+- **The elbow sign-flip caveat now matches the two ROS workspaces.** 0.7.0 said
+  both URDFs still declared the old negative range; `bonicbot-a2-ros` `6098b2d`
+  has since re-signed `body.xacro` to `0..0.785` and negated the axis, so on an
+  A2 a positive elbow bends the arm and the warning had inverted into a lie —
+  it told A2 users the elbow would not move at all. `bonicOS-m1-ros` is still
+  on `-1.9199..0.0`, so the warning stands there and now says so specifically.
 
 ## [0.7.0] — 2026-09-06
 

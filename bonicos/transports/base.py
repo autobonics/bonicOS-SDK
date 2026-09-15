@@ -23,9 +23,10 @@ class Transport(Protocol):
     def connect(self, timeout: float) -> dict:
         """Perform the handshake; return the ``auth_result`` payload.
 
-        The payload (``robot_id``, ``series``, ``features``) lets
-        ``BonicBot`` expose feature flags without knowing which transport is
-        underneath.
+        Identity only — ``robot_id``, ``series``, and the ``cameras`` this
+        robot streams. There are no feature flags to expose: capability
+        gating was removed (PROTOCOL.md §3.1), and what a robot cannot do it
+        says when asked to do it.
         """
         ...
 

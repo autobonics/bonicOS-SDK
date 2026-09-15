@@ -101,7 +101,15 @@ CMD_SPEAK = "speak"
 #: §5.7 System & session.
 CMD_HEALTH = "health"
 CMD_RECONFIG_WIFI = "reconfig_wifi"
-CMD_TRIGGER_UPDATE = "trigger_update"
+#: Point-in-time read of the update state the robot otherwise pushes as
+#: ``update_progress``. Needed because an install replaces the process that
+#: was pushing it: the outcome is read back across the reconnect.
+CMD_UPDATE_STATUS = "update_status"
+#: Halt the companion computer, and cut the power latch where the ESP
+#: lane can reach it — the robot ends up genuinely off, not halted-but-
+#: powered. Nothing comes back but the ack: the process answering is the
+#: one going away.
+CMD_SHUTDOWN = "shutdown"
 CMD_SUBSCRIBE = "subscribe"
 
 #: Cost control for the two streams that are expensive to produce and usually
@@ -192,6 +200,15 @@ EVENT_BASE_SESSION = "base_session"
 #: not just a boolean, so a client can say *why* rather than just *whether*.
 EVENT_SESSION_HEALTH = "session_health"
 
+#: An install, narrated (``{"state", "phase", "percent", "version",
+#: "message", "reported_version", "last_update": {...}}``). Pushed only while
+#: one runs, and it stops partway through on purpose: the robot_app pushing it
+#: is the process docker replaces. ``percent`` is populated only while
+#: ``phase`` is ``"pulling"`` — the health gate takes as long as a cold ROS
+#: stack takes, and a made-up number for it reads as a stall. What happened
+#: after the connection dropped is in ``last_update``, replayed on reconnect.
+EVENT_UPDATE_PROGRESS = "update_progress"
+
 #: Continuously-pushed, cached-latest-value telemetry — surfaced through
 #: ``read_telemetry()`` / ``wait_for_update()``.
 TELEMETRY_EVENTS = frozenset(
@@ -207,6 +224,7 @@ TELEMETRY_EVENTS = frozenset(
         EVENT_NAV_MODE,
         EVENT_BASE_SESSION,
         EVENT_SESSION_HEALTH,
+        EVENT_UPDATE_PROGRESS,
         EVENT_SCAN,
     }
 )
@@ -218,7 +236,14 @@ ASYNC_EVENTS = frozenset({EVENT_NAV_STATUS})
 #: Events replayed by the server on ``auth`` / ``subscribe`` (PROTOCOL.md
 #: §3, §5.7) since they're expensive to regenerate.
 CACHED_EVENTS = frozenset(
-    {EVENT_MAP, EVENT_COSTMAP, EVENT_NAV_MODE, EVENT_BASE_SESSION, EVENT_SESSION_HEALTH}
+    {
+        EVENT_MAP,
+        EVENT_COSTMAP,
+        EVENT_NAV_MODE,
+        EVENT_BASE_SESSION,
+        EVENT_SESSION_HEALTH,
+        EVENT_UPDATE_PROGRESS,
+    }
 )
 
 # NOTE: cached-value readers (`get_map()`, `get_plan()`, `get_nav_status()`,
@@ -360,8 +385,13 @@ NECK_YAW_RANGE_DEG = (-90.0, 90.0)  # same on every series
 #: It used to run -50..0 (A), -90..0 (S), -110..0 (M) — zero was the arm
 #: straight and every reachable angle was negative. bonicOS-firmware
 #: ``678dc38`` ("invert elbow servo range") turned it around, so the same
-#: motion is now 0..50 / 0..90 / 0..110 with zero still straight. Nothing
-#: about the hardware moved; only the number that describes it did.
+#: motion is now 0..45 / 0..90 / 0..110 with zero still straight. The A
+#: number also moved from 50 to 45 in the same pass, standardizing on the
+#: value ``bonicbot-a2-ros`` ``6098b2d`` had already re-signed its URDF to
+#: (``body.xacro``/``ros2_control.xacro``, ``lower="0" upper="0.785"``) —
+#: rather than widen the URDF to match the old firmware number, the firmware
+#: number was brought down to match it, so there is exactly one A-series
+#: elbow limit instead of two disagreeing ones.
 #:
 #: **Anything holding a stored negative elbow angle now means "straight".**
 #: A saved sequence, a lesson worksheet or an old snippet written against the
@@ -369,12 +399,19 @@ NECK_YAW_RANGE_DEG = (-90.0, 90.0)  # same on every series
 #: does not error, which is what makes this worth writing down. The tuple
 #: below is the A range, i.e. the intersection valid on every series; S and M
 #: bend further in the same direction.
-#: **The ROS lane has not caught up.** Both URDFs still declare the OLD range —
-#: `bonicbot-a2-ros` ``body.xacro`` has ``lower="-0.873" upper="0"`` and
-#: `bonicOS-m1-ros` ``lower="-1.9199" upper="0.0"``. ros2_control clamps a
-#: trajectory to the URDF, so on a Pro robot a positive elbow is clamped to 0
-#: by ROS while a negative one is clamped to 0 by the ESP: until those two
-#: files are re-signed, the elbow does not move through the ROS path at all
-#: and ``wait=True`` times out. Not fixable in the SDK — the SDK does not
-#: clamp, and clamping is not what is wrong.
-ELBOW_RANGE_DEG = (0.0, 50.0)  # A 0..50, S 0..90, M 0..110
+#:
+#: **The ROS lane caught up on A, not on M.** ros2_control clamps a trajectory
+#: to the URDF, so whichever range the URDF declares is the one that reaches
+#: the arm — and the two workspaces no longer agree:
+#:
+#: - `bonicbot-a2-ros` ``6098b2d`` re-signed ``body.xacro`` to
+#:   ``lower="0" upper="0.785"`` (0..45°) and negated the axis to keep RViz
+#:   and Gazebo pointing the same way as the hardware. **A2 works**: a
+#:   positive elbow up to 45° bends the arm through the ROS path, matching
+#:   this range exactly.
+#: - `bonicOS-m1-ros` still declares ``lower="-1.9199" upper="0.0"``. On an M1
+#:   a positive elbow is clamped to 0 by ROS while a negative one is clamped
+#:   to 0 by the ESP, so the elbow does not move through the ROS path **at
+#:   all** and ``wait=True`` times out. Not fixable in the SDK — the SDK does
+#:   not clamp, and clamping is not what is wrong.
+ELBOW_RANGE_DEG = (0.0, 45.0)  # A 0..45, S 0..90, M 0..110

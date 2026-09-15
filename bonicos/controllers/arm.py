@@ -33,8 +33,12 @@ GRIPPER_OPEN_DEG = protocol.GRIPPER_RANGE_DEG[1]  # 60.0
 GRIPPER_CLOSE_DEG = protocol.GRIPPER_RANGE_DEG[0]  # -45.0
 
 #: Well inside neck yaw's +/-90 on every series, so these need no clamping.
-NECK_LEFT_DEG = 45.0
-NECK_RIGHT_DEG = -45.0
+#: Positive is RIGHT, negative is LEFT — verified against hardware
+#: 2026-09-15. (Not the ROS/REP-103 right-hand-rule reading of the URDF's
+#: `axis xyz="0 0 1"`, which would put positive on the left; the physical
+#: robot disagrees with that reading, and the physical robot wins.)
+NECK_LEFT_DEG = -45.0
+NECK_RIGHT_DEG = 45.0
 NECK_CENTER_DEG = 0.0
 
 

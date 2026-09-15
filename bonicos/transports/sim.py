@@ -1520,7 +1520,21 @@ class SimTransport(MockTransport):
             return self._handle_location(cmd_type, msg)
 
         if cmd_type == protocol.CMD_HEALTH:
-            return {"type": "health", "cpu": 0.0, "ram": 0.0, "temp": 0.0}
+            # Field names are the robot's, not invented ones: a program that
+            # reads `health()["cpu_percent"]` against the sim and then fails
+            # with a KeyError on hardware has been taught the wrong shape by
+            # the thing meant to stand in for it.
+            return {"type": "health", "cpu_percent": 0.0, "ram_percent": 0.0,
+                    "disk_percent": 0.0, "temps": {}}
+        if cmd_type == protocol.CMD_UPDATE_STATUS:
+            # "unavailable" is the literal truth here and the same answer a
+            # real robot gives when no bonic-host answers (a bare-metal robot,
+            # a dev laptop). A bare {"ok": True} would carry no `state` at
+            # all, which is the one field every caller reads.
+            return {"ok": False, "state": "unavailable",
+                    "error": "no bonic-host in the simulator — nothing to update",
+                    "installing": False, "phase": None, "percent": None,
+                    "version": None, "message": None}
         if cmd_type == protocol.CMD_GET_SESSION_STATUS:
             return {
                 "base": {
@@ -1542,6 +1556,13 @@ class SimTransport(MockTransport):
                 return {"ok": True}
             result = self._speech_provider(msg.get("text", ""), msg.get("voice"))
             return {"ok": True if result is None else bool(result)}
+
+        if cmd_type == protocol.CMD_SHUTDOWN:
+            # There is no machine to halt. Refusing is the honest answer, and
+            # the alternative — acking a poweroff that did not happen — is how
+            # a shutdown script gets believed and shipped.
+            return {"ok": False,
+                    "error": "the simulator has nothing to power off"}
 
         # Everything else (set_initial_pose, start/stop_navigation,
         # start/stop_mapping, servo_single, head/display,

@@ -22,9 +22,14 @@ simulator, in the on-robot runner, and on a laptop:
    browser/Pyodide path, where there is no socket to open and the host
    supplies a simulator;
 2. the ``host``/``robot_id`` arguments, if given — the laptop path;
-3. ``$BONICOS_HOST`` / ``$BONICOS_ROBOT_ID`` — what the on-robot runner
-   sets, so user code never hardcodes ``127.0.0.1``;
-4. mDNS autodiscovery (optional ``discovery`` extra).
+3. ``$BONICOS_UDS`` — a unix socket path, which the on-robot ``run_code``
+   runner sets. Its sandbox has no network namespace (``bwrap
+   --unshare-net``), so there is no loopback to dial; the socket is the one
+   thing bind-mounted in. Checked before ``$BONICOS_HOST`` so the runner
+   wins wherever both happen to be set;
+4. ``$BONICOS_HOST`` / ``$BONICOS_ROBOT_ID`` — the laptop/dev-shell path,
+   so user code never hardcodes ``127.0.0.1``;
+5. mDNS autodiscovery (optional ``discovery`` extra).
 
 **``robot_id`` is optional, not a second required identifier.** ``host``
 alone is enough to connect — it already names one specific machine.
@@ -107,12 +112,26 @@ class BonicBot:
         else:
             from .transports.websocket import WebSocketTransport
 
+            # Captured BEFORE the env fallback below: only an explicit
+            # `host=` argument overrides the ambient socket. Reading it after
+            # would let a robot's own $BONICOS_HOST (set for dev shells) look
+            # like a deliberate override and silently disable the socket lane
+            # for every sandboxed run.
+            host_was_explicit = host is not None
+            uds = os.environ.get("BONICOS_UDS") or None
             if host is None:
                 host = os.environ.get("BONICOS_HOST") or None
             if robot_id is None:
                 robot_id = os.environ.get("BONICOS_ROBOT_ID") or None
 
-            if host is None:
+            # An explicit `host=` argument is a deliberate override and wins
+            # over the ambient socket — but inside the runner sandbox it will
+            # not resolve, which is exactly the "user code named a host"
+            # mistake the env vars exist to avoid.
+            if uds is not None and host_was_explicit:
+                uds = None
+
+            if uds is None and host is None:
                 from .discovery import find_robot
 
                 host = find_robot(robot_id, timeout)
@@ -127,7 +146,8 @@ class BonicBot:
                 token if token is not None else os.environ.get("BONICOS_TOKEN")
             )
             self._transport = WebSocketTransport(
-                host, robot_id=robot_id, token=resolved_token
+                host or "127.0.0.1", robot_id=robot_id,
+                token=resolved_token, uds=uds
             )
 
         # The handshake carries **identity only** — no capability data
@@ -566,6 +586,3 @@ class BonicBot:
 
     def reconfig_wifi(self, ssid: str, password: str) -> bool:
         return self.system.reconfig_wifi(ssid, password)
-
-    def trigger_update(self) -> bool:
-        return self.system.trigger_update()

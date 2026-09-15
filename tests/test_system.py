@@ -108,11 +108,43 @@ def test_reconfig_wifi(robot, transport) -> None:
     assert sent["password"] == "mypassword"
 
 
-def test_trigger_update(robot, transport) -> None:
+def test_update_status_reads_through_to_the_host(robot, transport) -> None:
     transport.script_ack(
-        protocol.CMD_TRIGGER_UPDATE, {"ok": True, "detail": "restarting"}
+        protocol.CMD_UPDATE_STATUS,
+        {"ok": True, "state": "idle", "reported_version": "0.2.0",
+         "last_update": {"version": "0.3.0", "result": "rolled_back"}},
     )
-    assert robot.system.trigger_update() is True
+    status = robot.system.update_status()
+    # The read that survives the restart an install causes: how it ended is
+    # only knowable after reconnecting to whatever version came up.
+    assert status["last_update"]["result"] == "rolled_back"
+
+
+def test_shutdown_halts_the_machine(robot, transport) -> None:
+    transport.script_ack(protocol.CMD_SHUTDOWN, {"ok": True})
+    assert robot.system.shutdown() is True
+    assert transport.sent[-1]["type"] == protocol.CMD_SHUTDOWN
+
+
+def test_shutdown_reports_a_refusal(robot, transport) -> None:
+    # The refusal matters more than most: a program that believes the robot is
+    # off walks away from one that is still powered.
+    transport.script_ack(
+        protocol.CMD_SHUTDOWN, {"ok": False, "error": "poweroff not permitted"}
+    )
+    assert robot.system.shutdown() is False
+
+
+def test_get_update_status_reads_cached_telemetry(robot, transport) -> None:
+    assert robot.system.get_update_status() is None
+    transport.set_telemetry(
+        protocol.EVENT_UPDATE_PROGRESS,
+        {"state": "installing", "phase": "pulling", "percent": 40,
+         "version": "0.3.0"},
+    )
+    progress = robot.system.get_update_status()
+    assert progress is not None
+    assert progress["percent"] == 40
 
 
 def test_speak(robot, transport) -> None:

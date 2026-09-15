@@ -36,10 +36,13 @@ class MockTransport:
         self.sent: List[dict] = []
         self._default_acks: Dict[str, dict] = {}
         self._scripted_acks: Dict[int, dict] = {}
+        # Identity only. There is no `features` map on the wire any more —
+        # capability gating was removed (PROTOCOL.md §3.1), and a mock that
+        # keeps serving one teaches a shape the robot no longer sends.
         self._auth_result = {
             "robot_id": "MOCK_001",
-            "series": "M",
-            "features": {},
+            "series": "m",
+            "cameras": [],
         }
 
     # --- test-side configuration ---------------------------------------

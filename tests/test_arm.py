@@ -223,6 +223,23 @@ def test_fill_group_is_scoped_to_the_joints_this_robot_reports(
     assert set(transport.sent[-1]["servos"]) == {ServoID.NECK_YAW.value}
 
 
+def test_look_right_sends_positive_yaw(robot, transport) -> None:
+    # Verified against hardware 2026-09-15: right is positive. (Not the
+    # ROS/REP-103 right-hand-rule reading of the URDF's z axis, which would
+    # put positive on the left — the physical robot disagrees, and wins.)
+    robot.arm.look_right()
+    sent = transport.sent[-1]["servos"][ServoID.NECK_YAW.value]
+    assert math.isclose(sent, math.radians(arm_module.NECK_RIGHT_DEG))
+    assert arm_module.NECK_RIGHT_DEG > 0
+
+
+def test_look_left_sends_negative_yaw(robot, transport) -> None:
+    robot.arm.look_left()
+    sent = transport.sent[-1]["servos"][ServoID.NECK_YAW.value]
+    assert math.isclose(sent, math.radians(arm_module.NECK_LEFT_DEG))
+    assert arm_module.NECK_LEFT_DEG < 0
+
+
 def test_reset_servos_is_scoped_to_reported_joints(robot, transport) -> None:
     transport.set_telemetry(
         "joint_states",

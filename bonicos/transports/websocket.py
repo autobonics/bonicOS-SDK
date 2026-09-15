@@ -39,6 +39,14 @@ class WebSocketTransport:
     ``ws://<host>:<port>/ws?robotId=<robot_id>`` when ``robot_id`` is given —
     the same URL shape regardless of which process hosts it
     (`bonicOS-robot-app` on Pro, the Flutter tablet app on Lite).
+
+    ``uds`` switches the same protocol onto a **unix domain socket** instead
+    of TCP. That is what the on-robot ``run_code`` runner uses: its sandbox
+    has no network namespace at all (``bwrap --unshare-net``), so there is no
+    loopback for ``127.0.0.1:8080`` to resolve on — but a unix socket is a
+    filesystem object, so a single bind-mounted socket reaches robot_app
+    while everything else stays unreachable. Nothing about the wire protocol
+    changes; only the connect call does.
     """
 
     def __init__(
@@ -48,9 +56,11 @@ class WebSocketTransport:
         robot_id: Optional[str] = None,
         port: int = 8080,
         token: Optional[str] = None,
+        uds: Optional[str] = None,
     ) -> None:
         self._host = host
         self._port = port
+        self._uds = uds
         self._robot_id = robot_id
         self._token = token or ""
 
@@ -97,12 +107,22 @@ class WebSocketTransport:
 
         url = self._build_url()
         try:
-            self._ws = ws_sync_client.connect(url, open_timeout=timeout)
+            if self._uds is not None:
+                # `uri` still carries the path and query the server routes on
+                # (``/ws?robotId=``) — only the underlying socket differs, so
+                # robot_app sees an identical request either way. Available in
+                # websockets >= 12.0, which is this package's floor pin.
+                self._ws = ws_sync_client.unix_connect(
+                    self._uds, uri=url, open_timeout=timeout
+                )
+            else:
+                self._ws = ws_sync_client.connect(url, open_timeout=timeout)
         except Exception as exc:  # noqa: BLE001 - surfaced as our own type
             raise BonicConnectionError(f"failed to connect to {url}: {exc}") from exc
 
         self._rx_thread = threading.Thread(target=self._rx_loop, daemon=True)
         self._rx_thread.start()
+        self._register_shutdown_hook()
 
         try:
             self.send(
@@ -247,6 +267,45 @@ class WebSocketTransport:
             self._event_log[event_type] = []
         return events
 
+    def _register_shutdown_hook(self) -> None:
+        """Close the socket during interpreter shutdown, so a script that
+        never calls close() still exits.
+
+        Without this, it does not. ``websockets.sync`` runs its reader in a
+        thread created WITHOUT ``daemon=True``
+        (``websockets.sync.connection.Connection.__init__``), and that thread
+        only returns when the socket closes — so CPython's shutdown blocks
+        joining it, forever, after the user's last line has run. A program
+        that connects, prints, and ends therefore hangs instead of exiting.
+        On the robot that means every run sits until the ``run_code``
+        wall-clock timeout; on a laptop it means Ctrl-C.
+
+        ``threading._register_atexit``, not ``atexit.register``: CPython joins
+        non-daemon threads BEFORE running ``atexit`` handlers, so an atexit
+        hook is reached only after the hang it was meant to prevent. The
+        threading hook runs first, which is the whole reason it exists.
+        Measured, in that order, rather than assumed.
+
+        Private API, so it is guarded — an interpreter without it falls back
+        to atexit, which at least still closes the socket on the paths where
+        something else already ended the reader.
+        """
+        hook = getattr(threading, "_register_atexit", None)
+        if hook is None:
+            import atexit
+
+            hook = atexit.register
+        try:
+            hook(self._close_quietly)
+        except Exception:  # noqa: BLE001 - shutdown hygiene is never fatal
+            pass
+
+    def _close_quietly(self) -> None:
+        try:
+            self.close()
+        except Exception:  # noqa: BLE001 - interpreter is going down anyway
+            pass
+
     def close(self) -> None:
         self.stop_camera()
         if self._ws is not None:
@@ -264,10 +323,13 @@ class WebSocketTransport:
     # --- background receive thread -----------------------------------------
 
     def _build_url(self) -> str:
+        # Over a unix socket there is no host to name; `localhost` is just the
+        # Host header the server ignores. The path and query are what matter.
+        authority = "localhost" if self._uds is not None else f"{self._host}:{self._port}"
         if self._robot_id is None:
-            return f"ws://{self._host}:{self._port}/ws"
+            return f"ws://{authority}/ws"
         query = urllib.parse.urlencode({"robotId": self._robot_id})
-        return f"ws://{self._host}:{self._port}/ws?{query}"
+        return f"ws://{authority}/ws?{query}"
 
     def _rx_loop(self) -> None:
         try:

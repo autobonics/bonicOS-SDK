@@ -98,7 +98,7 @@ forward-compat with v1 proximity auth).
 // robot → client
 { "type": "auth_result", "ok": true,
   "robot_id": "M1_001",
-  "series":   "M",
+  "series":   "m",
   "cameras":  ["face", "docking"] }
 ```
 
@@ -120,7 +120,7 @@ never sends it hangs every client at connect. It is the session-start signal.
 | Field | Meaning | Client use |
 |---|---|---|
 | `robot_id` | this robot's id | display, wrong-robot guard |
-| `series` | `"A"` / `"S"` / `"M"` — the chassis family | display only |
+| `series` | `"a"` / `"s"` / `"m"` — the chassis family | display only |
 | `cameras` | ordered camera names this robot streams | `get_camera_frame(name)` |
 
 `cameras` earns its place because it is a **name set a client cannot guess** —
@@ -174,6 +174,15 @@ above per command. (A future `wait_for_completion(cmd_id)` may unify this.)
 ## 5. Commands (client → robot)
 
 Grouped by area. Fields shown are the payload alongside `type`.
+
+> **One command this document covers and the SDK deliberately does not:**
+> `run_code` / `run_code_cancel` (with their `run_code_output` and
+> `run_code_result` events). They hand Python source to the robot to execute
+> against `bonicos` — so the code they carry is an SDK *caller*, and a
+> `robot.run_code()` would be the SDK asking a robot to run the SDK. They
+> exist because a school Chromebook cannot install Python, not because the
+> SDK needs them; `bonicOS-robot-app`'s `RUNCODE_IMPLEMENTATION.md` is their
+> spec. Everything else in §5 has a method.
 
 ### 5.1 Motion — `stream`/high-rate
 
@@ -421,19 +430,49 @@ the same regardless; only *who drives the amplifier* changes underneath.
 
 | type | status | fields | reply |
 |---|---|---|---|
-| `health` | ✅ live | — | `ack {type:"health", cpu, ram, temp, ...}` |
+| `health` | ✅ live | — | `ack {type:"health", cpu_percent, ram_percent, disk_percent, temps:{...}, runcode?}` |
 | `restart_base_session` | ✅ live | — | `ack {ok, error?, running, transitioning}` |
 | `start_base_session` | ✅ live | — | `ack {ok, error?, running, transitioning}` |
 | `stop_base_session` | ✅ live | — | `ack {ok, error?, running, transitioning}` |
 | `get_session_status` | ✅ live | — | `ack {base:{...}, nav:{...}, health:{...}}` |
 | `reconfig_wifi` | ✅ live | `ssid`, `password` | `ack {ok}` |
-| `trigger_update` | ✅ live | — | `ack {ok, detail}` |
+| `update_status` | ✅ live | — | `ack {ok, state, phase, percent, version, reported_version, previous_version, os_image_version, last_update, container}` |
+| `shutdown` | ✅ live | — | `ack {ok, error?}` |
 | `subscribe` | ✅ live | `events:[...]` (omit/empty ⇒ all) | `ack {ok, events:[...]}` |
 | `set_scan_enabled` | ✅ live | `enabled` | `ack {ok, enabled}` |
 | `set_camera_enabled` | ✅ live | `enabled`, `camera?` | `ack {ok, enabled, cameras}` |
 
 `subscribe` narrows the telemetry firehose per client and replays cached
 `map`/`costmap` for newly-covered events.
+
+**`health` reports percentages, and no longer reports the container.**
+`cpu_percent`/`ram_percent`/`disk_percent` are 0-100 numbers and `temps` is a
+`{sensor: °C}` map — not the `cpu`/`ram`/`temp` this table used to name.
+Container state left `health` when robot_app stopped updating itself: a
+container asking whether it is running answers a question nobody had, and the
+host owns that state. Ask `update_status` for it instead. `runcode` appears
+only where a code runner is wired up, and carries its version so a dashboard
+can spot a runner/robot_app mismatch.
+
+**`shutdown` halts the machine, not the stack.** It powers the companion
+computer down and, where the ESP lane is reachable, cuts the power latch, so
+the robot ends up genuinely off rather than halted but still drawing current.
+The ack is the whole reply — the process sending it is the one going away —
+and it is idempotent: a second request while one is in flight is answered `ok`
+rather than starting a second poweroff. For "restart the ROS stack", which is
+what an operator usually wants, see `restart_base_session` above.
+
+**Updates are answered by `update_progress`, not triggered here.** Installing
+a version is a managed operation owned by bonic-host, outside the wire
+protocol this SDK speaks — the SDK only reads what's happening. `state` is one
+of `installing`, `rolling_back`, `idle`, `unavailable` (no bonic-host: a
+bare-metal robot or a dev laptop), and `percent` is populated only while
+`phase` is `pulling`, which is the only part whose progress is actually known.
+
+Progress **stops mid-install by design**. The process reporting it is the one
+docker replaces, so a client sees the pull, then its connection drop. The
+health gate and any rollback are read afterwards from `last_update` — replayed
+automatically on reconnect, or asked for with `update_status`.
 
 **`start_base_session` / `stop_base_session` matter more than they look.**
 `robot_app`'s `base_autostart` now defaults to **false on real hardware** —
@@ -513,6 +552,7 @@ shapes come from `robot_app/ros/bridge_base.py`.
 | `nav_mode` | `mode: idle\|mapping\|navigating`, `map`, `transitioning`, `localized` | `get_nav_mode()` (cached, replayed on auth — same mechanism as `map`/`costmap`) |
 | `base_session` | `running, owned, transitioning, error` | `system.get_base_session()` (cached, replayed on auth) |
 | `session_health` | `ok, base:{...}, nav:{...}, issues:[...]` | `system.get_session_health()` (cached, replayed on auth; pushed only on change) |
+| `update_progress` | `state, phase, percent, version, message, reported_version, last_update:{...}` | `system.get_update_status()` (cached, replayed on auth; pushed only while an install runs — see §5.7) |
 
 **`scan` is unlike every other telemetry event, in two ways.** It is
 subscribed **on demand only** — nothing arrives until a client sends

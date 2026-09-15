@@ -946,6 +946,36 @@ def test_preview_open_renders_but_read_frame_still_gated_on_start_camera(
 # --- speech (dev/SIMULATOR.md §3.7) --------------------------------------
 
 
+def test_health_uses_the_robots_field_names(sim: SimTransport) -> None:
+    # The whole value of the sim answering `health` at all is that code
+    # written against it keeps working on hardware. `cpu`/`ram`/`temp` would
+    # have meant a KeyError the first time it met a real robot.
+    cmd_id = sim.send({"type": protocol.CMD_HEALTH})
+    ack = sim.wait_for_ack(cmd_id)
+    assert set(ack) >= {"cpu_percent", "ram_percent", "disk_percent", "temps"}
+
+
+def test_update_status_reports_unavailable_rather_than_bare_ok(
+    sim: SimTransport,
+) -> None:
+    # `state` is the field every caller reads, and "unavailable" is exactly
+    # what a real robot says when no bonic-host answers — a dev laptop, a
+    # bare-metal robot, or this.
+    cmd_id = sim.send({"type": protocol.CMD_UPDATE_STATUS})
+    ack = sim.wait_for_ack(cmd_id)
+    assert ack["state"] == "unavailable"
+    assert ack["installing"] is False
+
+
+def test_shutdown_refuses_instead_of_acking_a_poweroff_that_cannot_happen(
+    sim: SimTransport,
+) -> None:
+    cmd_id = sim.send({"type": protocol.CMD_SHUTDOWN})
+    ack = sim.wait_for_ack(cmd_id)
+    assert ack["ok"] is False
+    assert ack["error"]
+
+
 def test_speak_acks_true_with_no_provider(sim: SimTransport) -> None:
     # Same silent-success stub `speak()` has always had — installing a
     # provider is additive, never a new way to fail.

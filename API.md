@@ -277,20 +277,30 @@ set, not the old BLE-hardware set it was originally ported from.
 
 > **Elbow angles are positive as of 2026-09-05.** Elbow travel is one-sided,
 > and bonicOS-firmware `678dc38` flipped which side: it ran −50..0 (A), −90..0
-> (S), −110..0 (M) and now runs 0..50 / 0..90 / 0..110, with 0 still the arm
-> straight. The motion is identical; only the sign changed. **Code written
-> against the old range does not error — it clamps at 0 and the arm never
-> bends**, so `move_left_arm(shoulder=60, elbow=-30)` now means "hold the arm
-> straight". Update saved sequences and worksheets, not just source.
-> `protocol.ELBOW_RANGE_DEG` carries the range valid on every series.
-> **The ROS lane has not caught up.** Both URDFs still declare the old range —
-> `bonicbot-a2-ros`'s `body.xacro` has `lower="-0.873" upper="0"`, `bonicOS-m1-ros`
-> has `lower="-1.9199" upper="0.0"`. ros2_control clamps a trajectory to the
-> URDF, so on a Pro robot a **positive** elbow is clamped to 0 by ROS while a
-> **negative** one is clamped to 0 by the ESP — until those files are re-signed
-> the elbow does not move through the ROS path at all, and `wait=True` times
-> out. The SDK cannot paper over this: it does not clamp user angles, and
-> clamping is not what is wrong.
+> (S), −110..0 (M) and now runs 0..45 / 0..90 / 0..110, with 0 still the arm
+> straight. The A number also moved from 50 to 45 in the same pass — see
+> below. **Code written against the old range does not error — it clamps at 0
+> and the arm never bends**, so `move_left_arm(shoulder=60, elbow=-30)` now
+> means "hold the arm straight". Update saved sequences and worksheets, not
+> just source. `protocol.ELBOW_RANGE_DEG` carries the range valid on every
+> series.
+>
+> **A's 50 became 45, matching the URDF instead of the other way round.**
+> `bonicbot-a2-ros` `6098b2d` had already re-signed `body.xacro` to
+> `lower="0" upper="0.785"` (0..45°) ahead of the firmware catching up, rather
+> than widen the URDF to the old 50°. The firmware then adopted 45 too, so
+> there is one A-series elbow limit instead of two that disagreed.
+>
+> **The ROS lane caught up on A, not on M.** ros2_control clamps a trajectory
+> to the URDF, so whichever range the URDF declares is the one that reaches
+> the arm. `bonicbot-a2-ros`'s `body.xacro` (`lower="0" upper="0.785"`, axis
+> negated so RViz and Gazebo still match the hardware) means **on an A2 a
+> positive elbow up to 45° bends the arm, matching the range above exactly**.
+> `bonicOS-m1-ros` still declares `lower="-1.9199" upper="0.0"`, so **on an M1
+> the elbow does not move through the ROS path at all** — a positive angle is
+> clamped to 0 by ROS, a negative one clamped to 0 by the ESP — and
+> `wait=True` times out. The SDK cannot paper over that: it does not clamp
+> user angles, and clamping is not what is wrong.
 
 > **`wait=True` means the arm actually arrived, not just that the server
 > acked the command** (fixed 2026-08-04 — the
@@ -470,8 +480,8 @@ Grouped access: `robot.camera.*`.
 
 ## 10. System
 
-**On Lite:** mixed. `health()`, `reconfig_wifi()` and `trigger_update()` are
-✅ available (the tablet answers them). The base-session methods and the
+**On Lite:** mixed. `health()` and `reconfig_wifi()` are ✅ available (the
+tablet answers them). The base-session methods and the
 grouped `system.get_base_session()` / `get_session_health()` are ❌ — there is
 no ROS stack to supervise, so the robot answers with an `error` explaining
 that. (This used to be described as gated on a `session_control` feature flag;
@@ -479,13 +489,12 @@ capability gating was removed — see PROTOCOL.md §3.1.)
 
 | Method | Description |
 |---|---|
-| `robot.health() -> dict` | CPU / RAM / temperature / container status. |
+| `robot.health() -> dict` | `{"cpu_percent", "ram_percent", "disk_percent", "temps": {sensor: °C}}`, plus `runcode` where a code runner is wired up. **Not** container state — robot_app no longer updates itself, so the host owns that; `system.update_status()` answers it. |
 | `robot.restart_base_session(timeout=120.0) -> bool` | Recover a wedged robot: restart the ROS stack *underneath* mapping/navigation (drive, controllers, EKF, sensors, TF) — nav session down, base down, base up, nav session back. Refused while the robot is moving or running a nav goal — cancel/stop first. Slow (cold-start Gazebo alone is ~25s); the long default timeout reflects that, and a WebRTC video peer will drop partway through since the restart takes the camera topics with it. |
 | `robot.system.start_base_session(timeout=120.0) -> bool` | Bring the base stack up. A real robot does **not** start it on boot — powering on must not energise servos on its own — so this is how a freshly-booted robot is brought to life without SSH. |
 | `robot.system.stop_base_session(timeout=60.0) -> bool` | Take the base stack down; the robot can't move or perceive until it's restarted. Same guard as `restart_base_session` — refused while moving or running a goal. |
 | `robot.get_session_status() -> dict` | Fresh, synchronous `{"base": {...}, "nav": {...}, "health": {...}}` — the full picture behind `system.get_base_session()`/`get_session_health()` in one round trip, without waiting for a push. |
 | `robot.reconfig_wifi(ssid, password) -> bool` | Apply Wi-Fi credentials. |
-| `robot.trigger_update() -> bool` | Pull + restart the robot app. |
 
 Grouped-only (`robot.system.*`, not flattened onto `robot.*` — mirrors
 `get_plan()`/`get_costmap()`):
@@ -494,6 +503,9 @@ Grouped-only (`robot.system.*`, not flattened onto `robot.*` — mirrors
 |---|---|
 | `robot.system.get_base_session() -> dict \| None` | Latest cached `base_session` telemetry: `{"running", "owned", "transitioning", "error"}`. `None` before the first frame arrives. |
 | `robot.system.get_session_health() -> dict \| None` | Latest cached `session_health` telemetry: `{"ok", "base", "nav", "issues"}` — `issues` names the mechanism (e.g. `"amcl_not_running"`, `"pose_stale:23s"`), not just a boolean. Pushed only on change, so may still be `None` right after connecting even on a healthy robot; use `get_session_status()` for a guaranteed-fresh read. |
+| `robot.system.update_status() -> dict` | Fresh read of what the robot's host knows about updates: `{"state", "phase", "percent", "version", "reported_version", "previous_version", "last_update", ...}`. `state` is `installing`, `rolling_back`, `idle`, or `unavailable` — the last meaning there is no bonic-host to ask, which is normal on a bare-metal robot, a dev laptop or the simulator and is **not** an update failure. This is the read that survives the restart an install causes. |
+| `robot.system.get_update_status() -> dict \| None` | Latest cached `update_progress` telemetry, or `None` if the robot has said nothing about updates this session. Replayed on auth, so a client connecting to a robot that has just been updated — or rolled back — learns that immediately. Pushed only while an install runs. |
+| `robot.system.shutdown(timeout=15.0) -> bool` | **Power the robot off.** Halts the companion computer and, where the ESP lane is reachable, cuts the power latch — so it ends up genuinely off, and someone has to press the button to bring it back. Not a stack teardown; for that see `stop_base_session()`. The ack is all there is: the process answering is the one being halted, so expect the connection to drop right after. |
 
 Grouped access: `robot.system.*`.
 

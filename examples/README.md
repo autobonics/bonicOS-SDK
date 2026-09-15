@@ -40,7 +40,7 @@ python 01_connect_and_lifecycle.py
 | [`06_head_expression_and_display.py`](06_head_expression_and_display.py) | `set_expression`, `look`, LED-matrix display — **all 🔌 stub in v1** |
 | [`07_speech.py`](07_speech.py) | `speak()` |
 | [`08_sensors_and_telemetry.py`](08_sensors_and_telemetry.py) | `get_position/battery/imu`, `wait_for_update` loop pattern, `subscribe()` |
-| [`09_system_and_health.py`](09_system_and_health.py) | `health()` (safe); `reconfig_wifi`/`trigger_update` shown, not run |
+| [`09_system_and_health.py`](09_system_and_health.py) | `health()` (safe); `reconfig_wifi` shown, not run |
 | [`10_square_patrol_routine.py`](10_square_patrol_routine.py) | A combined routine tying motion + telemetry + speech together |
 | [`11_error_handling.py`](11_error_handling.py) | `ConnectionError`, `RobotDisconnected`, `CommandError`, `RobotError` |
 
@@ -49,9 +49,8 @@ python 01_connect_and_lifecycle.py
 Scripts that drive the base or arms (`02`, `03`, `04`, `05`, `10`) pause on
 `input()` for you to press Enter before sending any actuating command —
 Ctrl+C to back out. `09_system_and_health.py` never calls
-`reconfig_wifi()`/`trigger_update()` automatically — those can drop the
-robot off the network or restart the robot process, so they're only
-printed as a pattern to call yourself.
+`reconfig_wifi()` automatically — it can drop the robot off the network,
+so it's only printed as a pattern to call yourself.
 
 ## Running against the sim instead of real hardware
 
