@@ -133,6 +133,28 @@ def test_in_the_browser_every_call_says_to_use_a_robot(
             call()
 
 
+def test_in_the_browser_nothing_is_imported_before_the_check(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Pyodide has no numpy or OpenCV loaded. A function that imports them
+    before checking where it runs dies with ModuleNotFoundError instead of
+    the sentence — which 0.10.0's detectors did, in the real Pyodide."""
+    monkeypatch.setattr(sys, "platform", "emscripten")
+    for mod in ("numpy", "cv2", "mediapipe"):
+        monkeypatch.setitem(sys.modules, mod, None)  # `import numpy` now raises
+    calls = (
+        lambda: ai.detect_objects(None),
+        lambda: ai.detect_faces(None),
+        lambda: ai.detect_markers(None),
+        lambda: ai.detect_gestures(None),
+        lambda: ai.load("x"),
+        ai.list_models,
+    )
+    for call in calls:
+        with pytest.raises(ai.AIUnavailable, match="not in the simulator"):
+            call()
+
+
 def test_off_robot_without_models_says_so() -> None:
     with pytest.raises(ai.AIUnavailable, match="runs on a robot"):
         ai.load("cup-detector")

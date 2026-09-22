@@ -47,13 +47,25 @@ def normalize_name(name: str) -> str:
     return " ".join(str(name).split()).casefold()
 
 
-def models_dir() -> Path:
-    """The bundled models directory, or :class:`AIUnavailable` saying why not."""
+def check_runtime() -> None:
+    """Raise :class:`AIUnavailable` in the browser simulator.
+
+    Every public ``ai`` function calls this (directly, or through
+    :func:`models_dir`) BEFORE importing anything. Pyodide has not loaded numpy
+    or OpenCV, so a function that imported first would fail there with a bare
+    ``ModuleNotFoundError`` instead of this sentence — found running 0.10.0 in
+    the real Pyodide runtime.
+    """
     if sys.platform == "emscripten":
         raise AIUnavailable(
             "AI models run on a robot, not in the simulator. "
             "Switch the run target to a robot to use them."
         )
+
+
+def models_dir() -> Path:
+    """The bundled models directory, or :class:`AIUnavailable` saying why not."""
+    check_runtime()
     raw = os.environ.get(MODELS_DIR_ENV)
     if not raw:
         raise AIUnavailable(

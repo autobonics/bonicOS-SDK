@@ -56,11 +56,11 @@ def detect_objects(
     most confident first.
 
     ``input_size`` trades accuracy for speed: 256, 320 (default) or 416."""
+    path, entry = _builtin("objects")  # first: says "use a robot" before any import
     import numpy as np
 
     cv2 = cv2_module()
     img = as_bgr(frame)
-    path, entry = _builtin("objects")
     size = input_size or int(entry["inputSize"])
     if size not in _OBJECT_SIZES:
         raise ValueError(f"input_size must be one of {_OBJECT_SIZES}, got {size}")
@@ -139,9 +139,9 @@ def _yolox_grid(size: int) -> Tuple[Any, Any]:
 def detect_faces(frame: Any, min_confidence: float = 0.6) -> List[Face]:
     """Faces, most confident first, each with five landmarks (eyes, nose,
     mouth corners). Works best on faces facing the camera."""
+    path, _ = _builtin("faces")  # first: says "use a robot" before any import
     cv2 = cv2_module()
     img = as_bgr(frame)
-    path, _ = _builtin("faces")
     key = ("faces", path)
     if key not in _cache:
         _cache[key] = cv2.FaceDetectorYN.create(path, "", (_FACE_WIDTH, _FACE_WIDTH))
@@ -183,7 +183,9 @@ def detect_faces(frame: Any, min_confidence: float = 0.6) -> List[Face]:
 def detect_markers(frame: Any, dictionary: str = "4x4_50") -> List[Marker]:
     """ArUco markers, as printed from ``dictionary`` (default ``"4x4_50"``;
     also ``"4x4_100"``, ``"5x5_50"``, ``"6x6_50"``, ``"apriltag_36h11"``).
-    Needs no model file, so it also works off-robot with OpenCV installed."""
+    Needs no model file, so it also works off-robot with OpenCV installed —
+    but not in the browser simulator."""
+    _env.check_runtime()  # first: says "use a robot" before any import
     cv2 = cv2_module()
     img = as_bgr(frame)
     if dictionary not in _MARKER_DICTIONARIES:
@@ -220,11 +222,11 @@ def detect_gestures(frame: Any, max_hands: int = 1) -> List[Gesture]:
     Because it tracks, a hand that suddenly replaces a different one — a cut,
     not movement — is found one frame later. A hand entering an empty view is
     found at once, and a live camera rarely cuts."""
+    path, _ = _builtin("gestures")  # first: says "use a robot" before any import
     import numpy as np
 
     cv2 = cv2_module()
     img = as_bgr(frame)
-    path, _ = _builtin("gestures")
     try:
         import mediapipe as mp
         from mediapipe.tasks import python as mp_tasks
