@@ -4,6 +4,19 @@ All notable changes to `bonicos`. This project follows
 [Semantic Versioning](https://semver.org/); while on `0.x`, breaking changes
 bump the minor version.
 
+## [0.10.1] — 2026-09-22
+
+### Fixed
+
+- **`bonicos.ai` in the browser simulator says to use a robot.** 0.10.0's
+  detectors (`detect_objects`, `detect_faces`, `detect_markers`,
+  `detect_gestures`) imported numpy before checking where they were running.
+  Pyodide has not loaded numpy or OpenCV, so in the simulator they died with
+  `ModuleNotFoundError: No module named 'numpy'` instead of raising
+  `AIUnavailable` — "AI models run on a robot, not in the simulator".
+  `ai.load` was unaffected. Found by running the 0.10.0 wheel in the real
+  Pyodide runtime; 0.10.0 was never uploaded to PyPI or deployed.
+
 ## [0.10.0] — 2026-09-22
 
 ### Added
