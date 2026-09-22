@@ -4,6 +4,41 @@ All notable changes to `bonicos`. This project follows
 [Semantic Versioning](https://semver.org/); while on `0.x`, breaking changes
 bump the minor version.
 
+## [0.10.0] — 2026-09-22
+
+### Added
+
+- **`bonicos.ai` — computer vision on the robot.** `from bonicos import ai`
+  gives frame-in functions that are independent of any robot connection
+  (API.md §9.1):
+  - `ai.load(name).predict(frame)` runs a model trained in the Train tab — a
+    `bonic-head-v1` head on the robot's bundled MobileNetV2 backbone. Every
+    head is validated before it runs: checksum, byte length against its
+    layers, size caps, the backbone *build* it was trained against, and the
+    preprocessing it asks for. A head that fails is refused with
+    `InvalidModel` rather than allowed to predict confident nonsense.
+  - Built-ins that need no training: `detect_objects` (YOLOX-nano, the 80
+    COCO classes), `detect_faces` (YuNet), `detect_markers` (ArUco),
+    `detect_gestures` (MediaPipe).
+  - New exceptions `AIUnavailable`, `ModelNotFound`, `InvalidModel`.
+
+  The models come from the robot image (`$BONICOS_MODELS_DIR`), and trained
+  models from the program's own run (`$BONICOS_AI_MODELS`,
+  `$BONICOS_AI_HEADS_DIR`) — both set by robot_app. `import bonicos.ai` loads
+  no OpenCV or MediaPipe, so it is safe in the browser simulator, where every
+  call raises `AIUnavailable` with a sentence saying to use a robot.
+
+  Verified on an A Pro (RPi 4) under the runner's CPU and memory limits: a
+  head built from real photos classified each correctly, including mirrored
+  and resized copies; peak memory with every model loaded was 347 MB of the
+  512 MB allowed.
+
+  New `[ai]` extra (`numpy`, `opencv-python-headless`) for use off the robot.
+  mediapipe is deliberately not in it: the robot pins 0.10.18, because 1.x
+  crashes on a Raspberry Pi 4.
+
+  Minor rather than patch: a new public module and new exceptions.
+
 ## [0.9.0] — 2026-09-15
 
 ### Added
