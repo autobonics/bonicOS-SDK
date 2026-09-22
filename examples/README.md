@@ -43,6 +43,7 @@ python 01_connect_and_lifecycle.py
 | [`09_system_and_health.py`](09_system_and_health.py) | `health()` (safe); `reconfig_wifi` shown, not run |
 | [`10_square_patrol_routine.py`](10_square_patrol_routine.py) | A combined routine tying motion + telemetry + speech together |
 | [`11_error_handling.py`](11_error_handling.py) | `ConnectionError`, `RobotDisconnected`, `CommandError`, `RobotError` |
+| [`12_ai_vision.py`](12_ai_vision.py) | `bonicos.ai`: a trained model, objects, faces, gestures, markers — **runs on the robot only** |
 
 ## Safety
 

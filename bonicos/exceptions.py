@@ -48,3 +48,52 @@ class CameraUnavailable(RobotError):
     def __init__(self, detail: str = "") -> None:
         msg = "camera video is unavailable"
         super().__init__(f"{msg}: {detail}" if detail else msg)
+
+
+class AIUnavailable(RobotError):
+    """``bonicos.ai`` cannot run here at all.
+
+    Raised with a sentence that says what to do, never at import time:
+    ``from bonicos import ai`` always succeeds, so a program that merely
+    imports it still runs in the simulator. The reasons are concrete — the
+    program is running in the browser simulator (AI models run on a robot),
+    the bundled models are not installed (``$BONICOS_MODELS_DIR`` unset, as on
+    a laptop), or a runtime such as ``mediapipe`` is missing.
+    """
+
+
+class ModelNotFound(RobotError):
+    """``ai.load(name)`` named a model that was not sent with this program.
+
+    Trained models reach the robot alongside the program that uses them, so
+    this almost always means a typo in the name, or a model that was deleted
+    or renamed in the Train tab. ``available`` lists what *was* sent.
+    """
+
+    def __init__(self, name: str, available: list[str]) -> None:
+        if available:
+            sent = ", ".join(f'"{n}"' for n in sorted(available))
+            detail = f"Models sent with this program: {sent}."
+        else:
+            detail = "No AI models were sent with this program."
+        super().__init__(
+            f'No AI model called "{name}". {detail} '
+            "Check the name matches a model in the Train tab."
+        )
+        self.name = name
+        self.available = list(available)
+
+
+class InvalidModel(RobotError):
+    """A trained model was found but cannot be run safely or correctly.
+
+    The head file is damaged or does not match its description, it was
+    trained against a different backbone build than this robot carries, or
+    it asks for preprocessing this SDK does not implement. Running it anyway
+    would produce confident nonsense rather than an error, so it is refused.
+    """
+
+    def __init__(self, name: str, reason: str) -> None:
+        super().__init__(f'AI model "{name}" cannot be used: {reason}')
+        self.name = name
+        self.reason = reason

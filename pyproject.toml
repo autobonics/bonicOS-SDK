@@ -65,6 +65,16 @@ camera = [
     "aiortc>=1.6",
     "numpy>=1.21",
 ]
+# `bonicos.ai` (computer vision). On a robot these come from the run_code venv,
+# pinned there — this extra is for anyone running the SDK elsewhere. The models
+# themselves are not on PyPI: they live in the robot image ($BONICOS_MODELS_DIR).
+# mediapipe (gestures only) is deliberately absent: the robot pins 0.10.18,
+# because 1.x crashes on a Raspberry Pi 4 (bonicOS-robot-app
+# deploy/runcode-ai-requirements.txt).
+ai = [
+    "numpy>=1.21",
+    "opencv-python-headless>=4.8",
+]
 dev = [
     "pytest>=7.0",
     "pytest-cov",
@@ -78,6 +88,8 @@ dev = [
     # python_version = "3.11" target — a dev-tooling constraint, not a real
     # runtime incompatibility, so it doesn't belong on the [camera] extra.
     "numpy>=1.21,<2.1",
+    # bonicos.ai's tests run the real cv2.dnn / FaceDetectorYN / aruco paths.
+    "opencv-python-headless>=4.8",
 ]
 
 [project.urls]
@@ -87,7 +99,7 @@ Repository = "https://github.com/Autobonics/bonicOS-SDK.git"
 "Bug Tracker" = "https://github.com/Autobonics/bonicOS-SDK/issues"
 
 [tool.setuptools]
-packages = ["bonicos", "bonicos.controllers", "bonicos.transports"]
+packages = ["bonicos", "bonicos.ai", "bonicos.controllers", "bonicos.transports"]
 
 [tool.setuptools.package-data]
 bonicos = ["py.typed"]
@@ -114,5 +126,5 @@ disallow_untyped_defs = true
 
 # zeroconf is an optional extra (discovery.py) and ships no type stubs.
 [[tool.mypy.overrides]]
-module = ["zeroconf"]
+module = ["zeroconf", "mediapipe", "mediapipe.*"]
 ignore_missing_imports = true

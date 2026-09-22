@@ -476,6 +476,55 @@ never see the peer. It needs the extra deps: `pip install bonicos[camera]`
 
 Grouped access: `robot.camera.*`.
 
+### 9.1 AI — `from bonicos import ai`
+
+Computer vision that runs **on the robot**. Every function takes a camera frame
+(what `get_camera_frame` returns) — it is not tied to a robot object.
+
+```python
+from bonicos import BonicBot, ai
+
+with BonicBot() as robot:
+    cups = ai.load("cup-detector")        # a model trained in the Train tab
+    while True:
+        frame = robot.get_camera_frame()
+        if frame is None:
+            continue
+
+        label, confidence = cups.predict(frame)[0]   # most likely class first
+        if label == "cup" and confidence > 0.8:
+            robot.speak("I can see a cup")
+
+        for thing in ai.detect_objects(frame):       # built in, no training
+            print(thing.label, thing.confidence, thing.center)
+```
+
+| Call | Returns | Notes |
+|---|---|---|
+| `ai.load(name)` | `Model` | A model trained in the Train tab, sent with this program. Case and spaces in the name are ignored. |
+| `model.predict(frame)` | `[Prediction(label, confidence), …]` | Every class, most likely first; confidences sum to 1. |
+| `model.classes` | `[str]` | Class names in training order. |
+| `ai.list_models()` | `[str]` | Names of the trained models sent with this program. |
+| `ai.detect_objects(frame, min_confidence=0.4, input_size=320)` | `[Detection]` | The 80 COCO classes (person, cup, bottle, chair, …). `input_size` 256 is faster, 416 more accurate. |
+| `ai.detect_faces(frame, min_confidence=0.6)` | `[Face]` | Box + `landmarks`: `right_eye`, `left_eye`, `nose`, `mouth_right`, `mouth_left` (the person's own sides). |
+| `ai.detect_markers(frame, dictionary="4x4_50")` | `[Marker]` | ArUco `id` + `corners`. Also `4x4_100`, `5x5_50`, `6x6_50`, `apriltag_36h11`. |
+| `ai.detect_gestures(frame, max_hands=1)` | `[Gesture]` | `name`: `Thumb_Up`, `Thumb_Down`, `Open_Palm`, `Closed_Fist`, `Pointing_Up`, `Victory`, `ILoveYou`, or `"None"`; `hand`: the person's `"Left"`/`"Right"`; 21 `landmarks`. |
+
+`Detection`, `Face` and `Gesture` have `x`, `y`, `width`, `height` and a
+`center` in frame pixels (origin top-left). `Marker` has `corners` and `center`.
+
+**Speed** — per frame on an A Pro (RPi 4) under the on-robot runner's CPU limit:
+trained model ~25 ms, markers ~15 ms, faces ~35 ms, gestures ~100 ms, objects
+~205 ms (~130 ms at `input_size=256`). A loop calling several of these runs at
+the sum of their times; S Pro and M Pro are faster.
+
+**Where it runs.** The models are part of the robot's software; trained models
+reach the robot with the program that uses them. In the browser simulator, or
+on a laptop, every call raises `AIUnavailable` saying so — `from bonicos import
+ai` itself always succeeds. `ai.load` raises `ModelNotFound` (listing what was
+sent) for an unknown name, and `InvalidModel` for a model it will not run — e.g.
+one trained against a different MobileNet build.
+
 ---
 
 ## 10. System
@@ -521,6 +570,11 @@ from bonicos import (
     ConnectionError,       # connect/handshake failed
     CommandError,          # server returned `error` — including "this robot can't"
     RobotDisconnected,     # link dropped mid-call
+)
+from bonicos.ai import (   # §9.1
+    AIUnavailable,         # AI cannot run here (simulator, laptop, missing runtime)
+    ModelNotFound,         # ai.load() named a model not sent with this program
+    InvalidModel,          # a trained model that is damaged or does not fit this robot
 )
 ```
 
