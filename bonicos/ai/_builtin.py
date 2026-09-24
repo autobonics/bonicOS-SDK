@@ -14,6 +14,11 @@ several of these with that in mind.
 
 from __future__ import annotations
 
+import contextlib
+import os
+import re
+import sys
+import tempfile
 import time
 from typing import Any, Dict, List, Tuple
 
@@ -212,6 +217,65 @@ def detect_markers(frame: Any, dictionary: str = "4x4_50") -> List[Marker]:
 # ── gestures ─────────────────────────────────────────────────────────────
 
 
+
+# MediaPipe's C++ half narrates itself to stderr, and nothing in its Python
+# API turns that off — the lines come from absl and TFLite writing to fd 2
+# directly, below anything `logging` or `contextlib.redirect_stderr` can
+# reach. On a robot that noise is not free: Code Studio shows stderr as error
+# output, so a student calling `detect_gestures()` gets a wall of red
+# beginning "Error in cpuinfo" and reasonably concludes their program is
+# broken, when in fact every one of those lines is a warning and the detector
+# worked. (This cost real debugging time when the feature was being built.)
+#
+# So fd 2 is captured across MediaPipe's own calls and filtered: known
+# narration is dropped, anything else is passed straight through. Filtering
+# rather than silencing, because a genuine MediaPipe error must still reach
+# the student — and a fatal one aborts the process, where the captured text
+# is flushed by the `finally` on the way out.
+_MP_NOISE = re.compile(
+    r"""^(?:
+          WARNING:\ All\ log\ messages\ before\ absl::InitializeLog
+        | [WIF]\d{4}\ .*\ (?:gesture_recognizer_graph|hand_gesture_recognizer_graph
+                           |inference_feedback_manager|landmark_projection_calculator
+                           |calculator_graph)\.cc:
+        | Error\ in\ cpuinfo:            # a CPU feature probe, not an error
+        | INFO:\ Created\ TensorFlow\ Lite\ XNNPACK\ delegate
+    )""",
+    re.VERBOSE,
+)
+
+
+@contextlib.contextmanager
+def _quiet_mediapipe() -> Any:
+    """Drop MediaPipe's stderr narration, pass everything else through."""
+    try:
+        saved = os.dup(2)
+    except OSError:      # no real fd 2 (embedded, or already redirected)
+        yield
+        return
+
+    spool = tempfile.TemporaryFile(mode="w+b")
+    try:
+        sys.stderr.flush()
+        os.dup2(spool.fileno(), 2)
+        try:
+            yield
+        finally:
+            # Restore first, so anything below still has a stderr even if the
+            # replay itself fails.
+            sys.stderr.flush()
+            os.dup2(saved, 2)
+            os.close(saved)
+            spool.seek(0)
+            text = spool.read().decode("utf-8", "replace")
+            kept = [ln for ln in text.splitlines() if ln and not _MP_NOISE.match(ln)]
+            if kept:
+                sys.stderr.write("\n".join(kept) + "\n")
+                sys.stderr.flush()
+    finally:
+        spool.close()
+
+
 def detect_gestures(frame: Any, max_hands: int = 1) -> List[Gesture]:
     """Hands and the gesture each is making.
 
@@ -243,7 +307,9 @@ def detect_gestures(frame: Any, max_hands: int = 1) -> List[Gesture]:
             running_mode=mp_vision.RunningMode.VIDEO,
             num_hands=int(max_hands),
         )
-        _cache[key] = [mp_vision.GestureRecognizer.create_from_options(options), -1]
+        with _quiet_mediapipe():
+            recognizer = mp_vision.GestureRecognizer.create_from_options(options)
+        _cache[key] = [recognizer, -1]
     recognizer, last_ts = _cache[key]
     # VIDEO mode needs strictly increasing timestamps; two calls within the
     # same millisecond would otherwise raise.
@@ -251,9 +317,10 @@ def detect_gestures(frame: Any, max_hands: int = 1) -> List[Gesture]:
     _cache[key][1] = ts
 
     rgb = np.ascontiguousarray(cv2.cvtColor(img, cv2.COLOR_BGR2RGB))
-    result = recognizer.recognize_for_video(
-        mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb), ts
-    )
+    with _quiet_mediapipe():
+        result = recognizer.recognize_for_video(
+            mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb), ts
+        )
 
     h, w = img.shape[:2]
     hands = []

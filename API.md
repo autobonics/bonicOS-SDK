@@ -445,11 +445,11 @@ Grouped access: `robot.sensors.*`.
 
 ## 9. Camera
 
-Video is WebRTC under the hood on every transport, but you never have to
-think about that — call `get_camera_frame()`/`get_frame()` and the link
-comes up transparently on first use. Frames are **BGR `numpy` arrays**
-(OpenCV's native layout), same shape on every transport. A multi-camera
-robot (e.g. the M1's face and docking cameras) exposes each by name.
+Call `get_camera_frame()`/`get_frame()` and the video link comes up
+transparently on first use — you never have to think about how. Frames are
+**BGR `numpy` arrays** (OpenCV's native layout), same shape on every
+transport and wherever your code runs. A multi-camera robot (e.g. the M1's
+face and docking cameras) exposes each by name.
 
 **On Lite:** ✅ available — but the camera is the **tablet's**, mounted on the
 robot's face: one camera, at face height, pointing forward. `robot.cameras`
@@ -468,11 +468,25 @@ lists what a given robot actually has.
 If there is no video path on this connection, camera calls raise `CameraUnavailable` rather than silently returning
 `None` forever.
 
-**How it works:** video leaves the robot as WebRTC media tracks, so the SDK
-opens its own `aiortc` peer on first use and hands you decoded frames. You
-never see the peer. It needs the extra deps: `pip install bonicos[camera]`
-(`aiortc`, `numpy`); without them the first camera call raises
-`CameraUnavailable` saying exactly that.
+**How it works:** two paths, picked for you, and the API is identical on both.
+
+*Off the robot* (your laptop, anywhere on the LAN) video leaves the robot as
+WebRTC media tracks, so the SDK opens its own `aiortc` peer on first use and
+hands you decoded frames — continuous media, which is what a network link
+wants. You never see the peer. It needs the extra deps: `pip install
+bonicos[camera]` (`aiortc`, `numpy`); without them the first camera call
+raises `CameraUnavailable` saying exactly that.
+
+*On the robot* (Code Studio, or anything else running through `run_code`)
+frames come back over the same connection your commands use. Code there runs
+sandboxed with no network of any kind, so there is no path a WebRTC peer
+could take — and pulling a frame is the cheaper route anyway: the robot is
+already holding the camera's JPEG, so it sends that instead of re-encoding
+video. Needs no extra install; `numpy` and OpenCV are already there.
+
+Either way `get_camera_frame()` gives you the latest frame, and polling it
+faster than the camera publishes costs nothing extra — the robot answers "you
+already have this one" and you get the frame you're holding.
 
 Grouped access: `robot.camera.*`.
 

@@ -133,8 +133,23 @@ CMD_SUBSCRIBE = "subscribe"
 #: re-enabling is instant. Per client and WebRTC-only: a lane with no media
 #: tracks answers ``ok: false`` rather than pretending.
 #: ``{enabled, camera?}`` -> ``ack {ok, enabled, cameras}``.
+#: ``get_camera_frame`` returns ONE frame as JPEG over the control lane
+#: itself, instead of the WebRTC media track video normally rides. It exists
+#: for the on-robot ``run_code`` runner, whose sandbox (``bwrap
+#: --unshare-net``) has a network namespace containing only its own loopback:
+#: a WebRTC peer there cannot reach robot_app for signaling *or* media, since
+#: no ICE candidate pair between the two namespaces can ever connect. The
+#: unix socket is the only path across, so the frame comes back in-protocol.
+#: ``since_seq`` quotes the sequence number the caller already holds, so a
+#: poll that outruns the camera is answered ``unchanged`` with no payload.
+#: ``{camera?, since_seq?}`` ->
+#: ``ack {ok, camera, seq, encoding: "jpeg", data: <base64>}``
+#: | ``ack {ok, camera, seq, unchanged: true}``
+#: | ``ack {ok, camera, seq: 0, data: null}`` (camera configured, nothing
+#: published yet).
 CMD_SET_SCAN_ENABLED = "set_scan_enabled"
 CMD_SET_CAMERA_ENABLED = "set_camera_enabled"
+CMD_GET_CAMERA_FRAME = "get_camera_frame"
 
 #: Commands that are never acked (high-rate) — the SDK must not
 #: `wait_for_ack` on these.

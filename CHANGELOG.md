@@ -4,6 +4,81 @@ All notable changes to `bonicos`. This project follows
 [Semantic Versioning](https://semver.org/); while on `0.x`, breaking changes
 bump the minor version.
 
+## [0.11.0] — 2026-09-24
+
+### Fixed
+
+- **`ai.detect_gestures()` no longer fills the console with what looks like a
+  crash.** MediaPipe's C++ half narrates itself to stderr — `Error in cpuinfo:
+  prctl(PR_SVE_GET_VL) failed`, XNNPACK delegate notices, feedback-manager and
+  landmark-projection warnings — and none of it can be turned off from its
+  Python API, because the writes go to fd 2 directly, below anything `logging`
+  or `redirect_stderr` can reach. Code Studio renders stderr as error output,
+  so a working gesture program looked like a failed one; every line of that
+  wall is a warning. The detector now captures fd 2 across MediaPipe's own
+  calls and filters it. Filtered, not silenced: anything that is not known
+  narration — a real MediaPipe error, a Python traceback — is passed straight
+  through.
+
+- **`get_camera_frame()` now works inside `run_code` on a real robot.** It
+  could not before, on any board, however the robot was configured — the only
+  documented way to get a frame was broken everywhere the AI features are
+  meant to be used. Built-in and custom detectors (`ai.detect_*`,
+  `Model.predict`) were correct; there was just no way to hand them a frame.
+
+  The cause was architectural, not a missing dependency. `run_code`'s sandbox
+  is `bwrap --unshare-net` — a network namespace holding nothing but its own
+  loopback, which is not the host's. The camera link's WebRTC signaling did a
+  TCP request to `127.0.0.1:8080`, which that namespace refuses (`Errno 111`).
+  Installing `aiortc` did not help, and neither would moving signaling onto
+  the unix socket: WebRTC *media* rides ICE, and no candidate pair between the
+  two namespaces can connect, so that swaps a connection-refused for an ICE
+  timeout.
+
+  So frames now come back over the connection commands already use, via a new
+  `get_camera_frame` protocol command (PROTOCOL.md §7). This needs the
+  matching robot_app build; against an older one the SDK says so by name
+  rather than reporting a camera fault.
+
+- **Every acked command was losing ~100 ms to a missed wakeup.** Found while
+  measuring the new camera path on a loaded A2: a frame round trip cost 333 ms
+  where the socket itself answered in 228 ms. `wait_for_ack` kept `_acks`
+  under a lock and signalled arrivals with a separate `threading.Event`,
+  pulsed `set()` then immediately `clear()`. An ack landing in the gap between
+  a caller finding it absent and that caller starting to wait left nothing
+  behind — the Event was clear again by the time it was waited on — so the
+  caller slept out a full 100 ms polling slice with its ack already in the
+  dict.
+
+  The gap is microseconds on an idle laptop, which is why no test caught it:
+  a local server always replies before the caller waits at all. On a robot
+  running the nav stack it is lost routinely, with the rx thread parsing a
+  ~130 KB frame against a GIL the rclpy executor is already contending for.
+  `_acks` now uses a `threading.Condition`, so the check and the wait happen
+  under the lock the rx thread publishes with and the wakeup cannot be missed;
+  the polling slice is gone with it. Affects every acked command, not just
+  camera frames.
+
+### Changed
+
+- **`start_camera` picks a video path by lane.** TCP still negotiates the
+  `aiortc` peer exactly as before — the browser and laptop streaming paths are
+  untouched, byte for byte. A transport on a unix socket (only ever the
+  on-robot runner) pulls frames in-protocol instead.
+
+  It is the cheaper path for a frame-at-a-time caller, not a fallback:
+  robot_app is already holding the camera's JPEG undecoded, so it forwards
+  bytes that exist, where WebRTC would decode that JPEG, re-encode to VP8, and
+  have the SDK decode it again — on a Pi already short of headroom. It also
+  needs neither `aiortc` nor `av`, so camera code runs in the runner venv
+  without the `[camera]` extra (`numpy` and OpenCV are already there for
+  `bonicos.ai`).
+
+- **Polling a camera faster than it publishes no longer re-sends the frame.**
+  A request quotes the sequence number it already holds and is answered
+  `unchanged`, with no payload and no decode — which is most calls in a
+  `while True:` vision loop.
+
 ## [0.10.1] — 2026-09-22
 
 ### Fixed

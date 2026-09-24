@@ -3,9 +3,10 @@
 This is the only way the SDK reaches a robot, whether it runs on a
 developer's laptop, inside the on-robot runner (``host="127.0.0.1"``), or
 anywhere else on the robot's LAN. Video is the one exception and it is
-invisible: :meth:`WebSocketTransport.start_camera` negotiates a WebRTC peer
-behind the scenes (``_camera_link.py``), because media tracks are the only
-way video leaves the robot.
+invisible: :meth:`WebSocketTransport.start_camera` brings up a WebRTC peer
+behind the scenes over TCP (``_camera_link.py``), and pulls frames over this
+same socket when the transport is on a unix socket (``_camera_snapshot.py``),
+where the runner's network-less sandbox rules WebRTC out entirely.
 
 A background thread iterates the socket and rebinds the latest value per
 event under the GIL, plus a couple of ``threading.Event``s to let
@@ -46,7 +47,8 @@ class WebSocketTransport:
     loopback for ``127.0.0.1:8080`` to resolve on — but a unix socket is a
     filesystem object, so a single bind-mounted socket reaches robot_app
     while everything else stays unreachable. Nothing about the wire protocol
-    changes; only the connect call does.
+    changes; only the connect call does — and, because the same namespace
+    rules a WebRTC peer out, which video path ``start_camera`` picks.
     """
 
     def __init__(
@@ -81,8 +83,17 @@ class WebSocketTransport:
         self._update_seq = 0
 
         self._acks: Dict[int, dict] = {}
-        self._acks_lock = threading.Lock()
-        self._acks_event = threading.Event()
+        # A Condition, not a lock plus an Event pulsed with set()/clear():
+        # that pulse is lost on anyone who hasn't reached wait() yet, and the
+        # waiter then sleeps out its whole slice with the ack already sitting
+        # in the dict. Measured on a loaded A2, that cost ~100 ms on top of
+        # every acked command — a third of the time a `run_code` vision loop
+        # spent per frame. A Condition publishes and waits under one lock, so
+        # the wakeup cannot be missed and the waiter needs no polling slice
+        # at all. (wait_for_update has the same hazard by construction and
+        # keeps its slices: it waits on "anything arrived", which no single
+        # notify corresponds to.)
+        self._acks_cv = threading.Condition()
 
         self._auth_event = threading.Event()
         self._auth_result: Dict[str, Any] = {}
@@ -95,8 +106,9 @@ class WebSocketTransport:
 
     # --- Transport protocol ------------------------------------------------
 
-    #: Video rides a WebRTC peer this transport brings up on demand
-    #: (start_camera) — commands/telemetry stay on the WebSocket.
+    #: Video works on both lanes — a WebRTC peer over TCP, frames pulled
+    #: in-protocol over a unix socket (start_camera picks). Commands and
+    #: telemetry stay on the WebSocket regardless.
     supports_camera = True
 
     def connect(self, timeout: float = 10.0) -> dict:
@@ -215,31 +227,50 @@ class WebSocketTransport:
 
     def wait_for_ack(self, cmd_id: int, timeout: float = 5.0) -> dict:
         deadline = time.monotonic() + timeout
-        while True:
-            with self._acks_lock:
-                if cmd_id in self._acks:
-                    return self._acks.pop(cmd_id)
-            if self._disconnected.is_set():
-                raise RobotDisconnected(
-                    f"connection closed while waiting for ack of command {cmd_id}"
-                )
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                raise BonicConnectionError(
-                    f"timed out waiting for ack of command {cmd_id}"
-                )
-            self._acks_event.wait(min(remaining, 0.1))
+        with self._acks_cv:
+            while cmd_id not in self._acks:
+                # Checked inside the same lock the rx thread publishes under,
+                # so an ack that lands between the check and the wait is
+                # impossible rather than merely unlikely.
+                if self._disconnected.is_set():
+                    raise RobotDisconnected(
+                        f"connection closed while waiting for ack of command {cmd_id}"
+                    )
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise BonicConnectionError(
+                        f"timed out waiting for ack of command {cmd_id}"
+                    )
+                self._acks_cv.wait(remaining)
+            return self._acks.pop(cmd_id)
 
     def start_camera(self, cameras: list) -> None:
-        """Bring up the behind-the-scenes WebRTC video peer (idempotent).
+        """Bring up the video path behind the scenes (idempotent).
 
-        Commands and telemetry keep flowing over this WebSocket; only video
-        rides the WebRTC peer, transparently to the caller.
+        Two implementations, chosen by which socket this transport is on, and
+        the caller sees neither:
+
+        * **TCP** (a laptop, the LAN) — a real WebRTC peer
+          (``_camera_link.py``). Continuous media, VP8 deltas, the right
+          shape for anything watching a stream over a network.
+        * **unix socket** (``run_code`` on the robot) — frames pulled over
+          this WebSocket (``_camera_snapshot.py``). The sandbox there is
+          ``bwrap --unshare-net``, whose network namespace holds only its own
+          loopback, so a WebRTC peer has no route to robot_app for signaling
+          *or* media and no ICE candidate pair that can connect. The socket
+          is the only thing that crosses, so frames come back in-protocol.
+
+        Commands and telemetry keep flowing over this WebSocket either way.
         """
         if self._camera is None:
-            from ._camera_link import NativeCameraLink
+            if self._uds is not None:
+                from ._camera_snapshot import SnapshotCameraLink
 
-            self._camera = NativeCameraLink(self._host, self._port)
+                self._camera = SnapshotCameraLink(self)
+            else:
+                from ._camera_link import NativeCameraLink
+
+                self._camera = NativeCameraLink(self._host, self._port)
         self._camera.start(cameras)
 
     def stop_camera(self) -> None:
@@ -344,8 +375,10 @@ class WebSocketTransport:
         finally:
             self._disconnected.set()
             self._auth_event.set()  # unblock connect() if still waiting
-            self._acks_event.set()
-            self._acks_event.clear()
+            # _disconnected is set first, so every waiter woken here sees it
+            # and raises RobotDisconnected instead of waiting out its timeout.
+            with self._acks_cv:
+                self._acks_cv.notify_all()
             self._update_event.set()
             self._update_event.clear()
 
@@ -362,10 +395,9 @@ class WebSocketTransport:
         if msg_type in (protocol.TYPE_ACK, protocol.TYPE_ERROR):
             cmd_id = msg.get("id")
             if cmd_id is not None:
-                with self._acks_lock:
+                with self._acks_cv:
                     self._acks[cmd_id] = msg
-                self._acks_event.set()
-                self._acks_event.clear()
+                    self._acks_cv.notify_all()
             return
 
         if msg_type in protocol.TELEMETRY_EVENTS or msg_type in protocol.ASYNC_EVENTS:

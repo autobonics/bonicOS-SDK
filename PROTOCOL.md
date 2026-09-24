@@ -441,6 +441,7 @@ the same regardless; only *who drives the amplifier* changes underneath.
 | `subscribe` | ✅ live | `events:[...]` (omit/empty ⇒ all) | `ack {ok, events:[...]}` |
 | `set_scan_enabled` | ✅ live | `enabled` | `ack {ok, enabled}` |
 | `set_camera_enabled` | ✅ live | `enabled`, `camera?` | `ack {ok, enabled, cameras}` |
+| `get_camera_frame` | ✅ live | `camera?`, `since_seq?` | `ack {ok, camera, seq, encoding, data}` \| `ack {ok, camera, seq, unchanged}` |
 
 `subscribe` narrows the telemetry firehose per client and replays cached
 `map`/`costmap` for newly-covered events.
@@ -493,6 +494,36 @@ viewer's WebRTC track — measured at ~32% of a core on a real A2 when unwatched
 — without dropping it, since every signaling lane here is one-shot
 offer/answer and removing a sender would need renegotiation. A lane with no
 media tracks (local WS, BLE) answers `ok: false` rather than pretending.
+
+**`get_camera_frame` is the video path for a client that cannot hold a media
+track.** Video normally leaves the robot as WebRTC, and for a viewer that is
+the right shape. The exception is the on-robot `run_code` runner: its sandbox
+is `bwrap --unshare-net`, a network namespace containing nothing but its own
+loopback, which is *not* the host's. A WebRTC peer started there has no route
+to robot_app for signaling **or** media, and no ICE candidate pair between the
+two namespaces can ever connect — so moving signaling onto the unix socket
+alone buys an ICE timeout in place of a connection-refused. The socket is the
+only thing that crosses the boundary, so the frame comes back in-protocol.
+
+It is also the cheaper path for a frame-at-a-time caller. The bridge is
+already holding the camera's JPEG undecoded, so this forwards bytes that
+exist; the WebRTC route would decode that JPEG, re-encode it to VP8, and have
+the client decode it again. Nothing about the media path changes — both run
+side by side off the same latest-frame buffer, and a browser watching the
+stream while a script polls frames costs no more than the browser alone.
+
+`seq` counts frames stored for that camera since robot_app started, so a
+caller quoting `since_seq` is answered `unchanged` with no payload when its
+frame is still current — which is most calls, since a vision loop polls
+faster than a camera publishes. It is per camera and resets on restart; a
+client sees the reset as "different frame" and re-fetches, the safe
+direction. `seq: 0` with `data: null` means the camera is configured but has
+published nothing yet (a camera node still coming up, or one that died) —
+reported rather than treated as an error, and distinct from `unchanged`,
+which would tell a caller to keep showing a frame it never received. Exempt
+from the rate limiter for the reason `drive` is: a vision loop runs at camera
+rate, and it self-throttles anyway, being request/response with the caller
+blocked on the ack.
 
 **`llm_query` removed (2026-09-04).** The on-device LLM command (Ollama-backed
 token streaming, `prompt`/`model?` → `llm_token` events, display-only) was

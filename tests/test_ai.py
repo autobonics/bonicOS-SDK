@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -382,3 +383,81 @@ def test_frames_are_checked_before_any_model_runs() -> None:
         ai.detect_markers(np.zeros((4, 4, 5), np.uint8))
     with pytest.raises(ValueError, match="uint8"):
         ai.detect_markers(np.zeros((4, 4, 3), np.float32))
+
+
+# ── MediaPipe's stderr narration ─────────────────────────────────────────
+
+
+class TestQuietMediapipe:
+    """MediaPipe's C++ half writes warnings straight to fd 2, under anything
+    `logging` or `redirect_stderr` can reach. Code Studio renders stderr as
+    error output, so that narration reads to a student as their program
+    failing — it is a wall of red starting "Error in cpuinfo" around a run
+    that worked perfectly. Filtered, not silenced: a real error must survive.
+    """
+
+    NOISE = [
+        "WARNING: All log messages before absl::InitializeLog() is called are"
+        " written to STDERR",
+        "W0000 00:00:1790242350.734098  2 gesture_recognizer_graph.cc:129] Hand"
+        " Gesture Recognizer contains CPU only ops.",
+        "I0000 00:00:1790242350.738536  2 hand_gesture_recognizer_graph.cc:250]"
+        " Custom gesture classifier is not defined.",
+        "Error in cpuinfo: prctl(PR_SVE_GET_VL) failed",
+        "INFO: Created TensorFlow Lite XNNPACK delegate for CPU.",
+        "W0000 00:00:1790242350.936842  9 inference_feedback_manager.cc:114]"
+        " Feedback manager requires a model with a single signature inference.",
+        "W0000 00:00:1790242351.575481 10 landmark_projection_calculator.cc:186]"
+        " Using NORM_RECT without IMAGE_DIMENSIONS.",
+    ]
+
+    #: The crash this feature actually had, plus ordinary Python failure. None
+    #: of it may be swallowed — that would turn a broken robot into a silent one.
+    REAL = [
+        "F0000 00:00:1790240747.748029 2 threadpool_pthread_impl.cc:53] Check"
+        " failed: res == 0 (11 vs. 0) pthread_create failed",
+        "*** Check failure stack trace: ***",
+        "terminate called after throwing an instance of 'St9bad_alloc'",
+        "  what():  std::bad_alloc",
+        "Traceback (most recent call last):",
+        "ValueError: frame is None",
+    ]
+
+    @pytest.mark.parametrize("line", NOISE)
+    def test_narration_is_dropped(self, line: str) -> None:
+        from bonicos.ai._builtin import _MP_NOISE
+
+        assert _MP_NOISE.match(line), f"would still reach the student: {line!r}"
+
+    @pytest.mark.parametrize("line", REAL)
+    def test_real_failures_are_not_dropped(self, line: str) -> None:
+        from bonicos.ai._builtin import _MP_NOISE
+
+        assert not _MP_NOISE.match(line), f"would be hidden: {line!r}"
+
+    def test_it_filters_writes_made_to_the_raw_file_descriptor(
+        self, capfd: pytest.CaptureFixture
+    ) -> None:
+        """The whole point: these writes bypass sys.stderr, so the context
+        manager has to work at the fd level or it does nothing at all."""
+        from bonicos.ai._builtin import _quiet_mediapipe
+
+        with _quiet_mediapipe():
+            os.write(2, (self.NOISE[3] + "\n").encode())
+            os.write(2, b"E0000 something genuinely wrong\n")
+
+        err = capfd.readouterr().err
+        assert "cpuinfo" not in err
+        assert "genuinely wrong" in err
+
+    def test_stderr_is_restored_even_when_the_body_raises(
+        self, capfd: pytest.CaptureFixture
+    ) -> None:
+        from bonicos.ai._builtin import _quiet_mediapipe
+
+        with pytest.raises(RuntimeError):
+            with _quiet_mediapipe():
+                raise RuntimeError("boom")
+
+        os.write(2, b"stderr still works\n")
+        assert "stderr still works" in capfd.readouterr().err
