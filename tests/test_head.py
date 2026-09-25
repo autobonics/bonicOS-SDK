@@ -15,6 +15,7 @@ import pytest
 
 from bonicos import protocol
 from bonicos.enums import DisplayAnimation, HeadMode
+from bonicos.exceptions import CommandError
 
 
 def test_set_expression_sends_the_mode(robot, transport) -> None:
@@ -88,22 +89,25 @@ def test_look_keeps_speed_positional_for_older_callers(robot, transport) -> None
     assert sent["speed"] == 30.0
 
 
-def test_look_is_false_when_the_robot_drove_nothing_asked_for(
+def test_look_raises_when_the_robot_has_none_of_the_axes_asked_for(
     robot, transport
 ) -> None:
-    # tilt alone on an A2: it fits no neck pitch, so nothing moved. Reporting
-    # True is how a caller concludes the neck is broken rather than absent.
+    # tilt alone on an A2: it has no neck pitch, so nothing moved.
     transport.script_ack(
         protocol.CMD_HEAD_LOOK, {"ok": True, "unsupported": ["neck_pitch_joint"]}
     )
-    assert robot.head.look(tilt=20.0) is False
+    with pytest.raises(CommandError, match="no tilt joint"):
+        robot.head.look(tilt=20.0)
 
 
-def test_look_is_true_when_some_axis_moved(robot, transport) -> None:
+def test_look_is_true_when_some_axis_moved_and_warns_about_the_rest(
+    robot, transport
+) -> None:
     transport.script_ack(
         protocol.CMD_HEAD_LOOK, {"ok": True, "unsupported": ["neck_pitch_joint"]}
     )
-    assert robot.head.look(pan=10.0, tilt=20.0) is True
+    with pytest.warns(UserWarning, match="no tilt joint"):
+        assert robot.head.look(pan=10.0, tilt=20.0) is True
 
 
 def test_display_commands_send_their_payloads(robot, transport) -> None:
@@ -177,15 +181,13 @@ def test_animation_enum_mirrors_the_robot_side_table(robot) -> None:
 def test_a_refused_display_command_surfaces_the_robots_reason(
     robot, transport
 ) -> None:
-    # "no LED matrix on this series" comes back as ok:False inside a NORMAL
-    # ack, not a protocol error, so nothing raises and the bare False the
-    # caller sees would throw the only useful sentence away.
+    # An ok:False ack raises with the robot's reason.
     transport.script_ack(
         protocol.CMD_DISPLAY_TEXT,
         {"ok": False, "error": "no LED matrix on this series"},
     )
-    with pytest.warns(UserWarning, match="no LED matrix on this series"):
-        assert robot.head.set_display_text("hi") is False
+    with pytest.raises(CommandError, match="no LED matrix on this series"):
+        robot.head.set_display_text("hi")
 
 
 def test_a_successful_display_command_does_not_warn(robot, transport) -> None:

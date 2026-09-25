@@ -3,10 +3,14 @@ from __future__ import annotations
 import math
 import threading
 import time
+import warnings
+
+import pytest
 
 from bonicos import protocol
 from bonicos.controllers import arm as arm_module
 from bonicos.enums import ServoID
+from bonicos.exceptions import CommandError
 
 # These first few tests only care about the outgoing payload shape/units, not
 # completion — `wait=False` keeps them instant (no ack, no convergence poll)
@@ -105,23 +109,30 @@ def test_move_left_arm_wait_true_times_out_if_never_converges(robot, transport) 
     assert time.monotonic() - start < 1.0
 
 
-def test_send_servo_command_returns_false_fast_when_ack_not_ok(
+def test_send_servo_command_raises_fast_with_the_failed_groups_reason(
     robot, transport
 ) -> None:
-    transport.script_ack(protocol.CMD_SERVO_COMMAND, {"ok": False})
+    # Per-group reasons in `failed` become the error's reason.
+    transport.script_ack(
+        protocol.CMD_SERVO_COMMAND,
+        {"ok": False, "failed": {"left_arm": "no joint_states sample yet"}},
+    )
     start = time.monotonic()
-    assert robot.arm.set_servos({"leftElbow": 30.0}, timeout=5.0) is False
+    with pytest.raises(CommandError, match="left_arm: no joint_states sample yet"):
+        robot.arm.set_servos({"leftElbow": 30.0}, timeout=5.0)
     # Must short-circuit on the failed ack, never enter the convergence poll.
     assert time.monotonic() - start < 1.0
 
 
-def test_send_servo_command_excludes_unknown_keys_from_convergence(
+def test_send_servo_command_excludes_unsupported_joints_from_convergence(
     robot, transport
 ) -> None:
-    # "bogus" is reported unknown by the server — it was never actually sent
-    # to a joint, so it must not be waited on (it would never converge and
-    # would spuriously time out the whole call otherwise).
-    transport.script_ack(protocol.CMD_SERVO_COMMAND, {"ok": True, "unknown": ["bogus"]})
+    # No left wrist yaw on this robot (reported by URDF name): it is not
+    # waited on, and the call warns while the elbow still moves.
+    transport.script_ack(
+        protocol.CMD_SERVO_COMMAND,
+        {"ok": True, "unsupported": ["left_wrist_yaw_joint"]},
+    )
 
     def updater() -> None:
         time.sleep(0.05)
@@ -144,15 +155,37 @@ def test_send_servo_command_excludes_unknown_keys_from_convergence(
         )
 
     threading.Thread(target=updater, daemon=True).start()
-    assert robot.arm.set_servos({"leftElbow": 30.0, "bogus": 1.0}, timeout=2.0) is True
+    with pytest.warns(UserWarning, match="no leftWristYaw"):
+        assert robot.arm.set_servos(
+            {"leftElbow": 30.0, "leftWristYaw": 10.0}, timeout=2.0
+        ) is True
 
 
-def test_send_servo_command_all_unknown_keys_returns_true_without_waiting(
+def test_send_servo_command_raises_on_an_unknown_joint_name(
     robot, transport
 ) -> None:
+    # A name that is not a joint raises.
     transport.script_ack(protocol.CMD_SERVO_COMMAND, {"ok": True, "unknown": ["bogus"]})
     start = time.monotonic()
-    assert robot.arm.set_servos({"bogus": 1.0}, timeout=5.0) is True
+    with pytest.raises(CommandError, match="no joint called bogus"):
+        robot.arm.set_servos({"bogus": 1.0, "leftElbow": 0.0}, timeout=5.0)
+    assert time.monotonic() - start < 1.0
+
+
+def test_send_servo_command_raises_when_the_robot_has_none_of_the_joints(
+    robot, transport
+) -> None:
+    # Grippers on a robot with none fitted: nothing moved, so it raises.
+    transport.script_ack(
+        protocol.CMD_SERVO_COMMAND,
+        {
+            "ok": True,
+            "unsupported": ["left_gripper_finger1_joint", "right_gripper_finger1_joint"],
+        },
+    )
+    start = time.monotonic()
+    with pytest.raises(CommandError, match="this robot has no leftGripper, rightGripper"):
+        robot.arm.open_grippers()
     assert time.monotonic() - start < 1.0
 
 
@@ -265,12 +298,13 @@ def test_unsupported_joints_do_not_block_convergence(robot, transport) -> None:
         {"ok": True, "groups": ["left_arm"], "unsupported": ["leftWristPitch"]},
     )
     start = time.monotonic()
-    assert (
-        robot.arm.set_servos(
-            {ServoID.LEFT_ELBOW.value: 30.0, "leftWristPitch": 10.0}, timeout=5.0
+    with pytest.warns(UserWarning, match="no leftWristPitch"):
+        assert (
+            robot.arm.set_servos(
+                {ServoID.LEFT_ELBOW.value: 30.0, "leftWristPitch": 10.0}, timeout=5.0
+            )
+            is True
         )
-        is True
-    )
     assert time.monotonic() - start < 1.0
 
 
@@ -329,3 +363,15 @@ def test_get_servo_angles_reads_joint_states_in_degrees(robot, transport) -> Non
 
 def test_get_servo_angles_empty_without_telemetry(robot, transport) -> None:
     assert robot.arm.get_servo_angles() == {}
+
+
+def test_reset_servos_before_joint_states_does_not_warn(robot, transport) -> None:
+    # With no joint_states yet it names the whole registry; the robot dropping
+    # the joints it lacks is not something the caller asked about.
+    transport.script_ack(
+        protocol.CMD_SERVO_COMMAND,
+        {"ok": True, "unsupported": ["left_wrist_yaw_joint", "neck_pitch_joint"]},
+    )
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        robot.arm.reset_servos()

@@ -154,6 +154,13 @@ INFLATION = ROBOT_RADIUS + INFLATION_MARGIN
 _CELL_HALF_DIAGONAL = GRID_RESOLUTION * math.sqrt(2.0) / 2.0
 
 
+#: What `save_dock`/`dock`/`undock` answer in the simulator.
+_NO_DOCKING_IN_SIM = (
+    "docking isn't available in the simulator — it needs a real robot fitted "
+    "with the docking addon (a rear camera and an AprilTag dock)"
+)
+
+
 def _floor_div(value: float) -> int:
     """World offset -> cell index. `math.floor`, not `int`: truncation goes
     toward zero and would fold the cells either side of an origin onto each
@@ -708,15 +715,12 @@ class SimTransport(MockTransport):
         Preemption matches real hardware (verified live): a joint already
         mid-ramp restarts from its *current
         interpolated position*, not from its old start or target — no jerk,
-        no queueing. Unrecognized keys (typo'd joint names) are reported
-        ``unknown`` and never touch ``_joint_positions``, same as the
-        server excluding them from ``servo_command``'s ack.
+        no queueing.
 
-        A joint that is *valid but not fitted* on this simulated robot is
-        reported ``unknown`` too. That is what a real server must do — a
-        server that accepted it instead would leave ``set_servos(wait=True)``
-        blocking until timeout on an actuator that will never move, since the
-        SDK only excludes ``unknown`` keys before waiting for convergence.
+        Keys that are not registry joints are reported ``unknown`` (as sent,
+        camelCase). Registry joints this simulated robot does not fit are
+        reported ``unsupported`` by URDF name, as a robot reports them.
+        Neither touches ``_joint_positions``.
         """
         servos = msg.get("servos", {})
         duration = float(msg.get("duration") or self._DEFAULT_SERVO_DURATION_S)
@@ -724,17 +728,22 @@ class SimTransport(MockTransport):
         now = time.monotonic()
 
         unknown = []
+        unsupported = []
         groups = set()
         for camel_key, target_rad in servos.items():
             snake_name = protocol.JOINT_NAME_MAP.get(camel_key)
-            if snake_name is None or snake_name not in self._fitted_urdf:
+            if snake_name is None:
                 unknown.append(camel_key)
+                continue
+            if snake_name not in self._fitted_urdf:
+                unsupported.append(snake_name)
                 continue
             groups.add(protocol.JOINT_GROUP_OF.get(camel_key, camel_key))
             start_pos = self._joint_positions.get(snake_name, 0.0)
             self._ramps[snake_name] = (start_pos, float(target_rad), now, duration)
 
-        return {"ok": True, "groups": sorted(groups), "unknown": unknown}
+        return {"ok": True, "groups": sorted(groups), "unknown": unknown,
+                "unsupported": sorted(unsupported)}
 
     def _publish_pose_and_odom(self) -> None:
         self.set_telemetry(
@@ -1373,14 +1382,21 @@ class SimTransport(MockTransport):
         saved.clear()
         return {"ok": True, "map": map_name, "deleted": deleted}
 
+    def _fail_goal(self) -> dict:
+        """A goal that cannot be planned: acked with a goal id, then failed
+        on ``nav_status`` — the same shape as a robot, so ``go_to`` returns
+        False rather than raising."""
+        self._nav_goal_id += 1
+        self._nav_state = "failed"
+        self._nav_path = []
+        self._publish_nav_status("failed", 0.0)
+        self._publish_plan([])
+        return {"goal_id": str(self._nav_goal_id)}
+
     def _start_goal(self, x: float, y: float, theta: float) -> dict:
         path = self._plan_path((self._x, self._y), (x, y))
         if path is None:
-            self._nav_state = "failed"
-            self._nav_path = []
-            self._publish_nav_status("failed", 0.0)
-            self._publish_plan([])
-            return {"ok": False}
+            return self._fail_goal()
         self._nav_goal_id += 1
         self._nav_path = path
         self._nav_path_index = 0
@@ -1394,11 +1410,7 @@ class SimTransport(MockTransport):
 
     def _start_waypoints(self, waypoints: List[dict]) -> dict:
         if not waypoints:
-            self._nav_state = "failed"
-            self._nav_path = []
-            self._publish_nav_status("failed", 0.0)
-            self._publish_plan([])
-            return {"ok": False}
+            return self._fail_goal()
 
         full_path: List[Tuple[float, float]] = []
         cur = (self._x, self._y)
@@ -1406,11 +1418,7 @@ class SimTransport(MockTransport):
             leg_goal = (float(wp["x"]), float(wp["y"]))
             leg = self._plan_path(cur, leg_goal)
             if leg is None:
-                self._nav_state = "failed"
-                self._nav_path = []
-                self._publish_nav_status("failed", 0.0)
-                self._publish_plan([])
-                return {"ok": False}
+                return self._fail_goal()
             # Concatenate into one continuous path — do not stop at
             # intermediate waypoints (drop the duplicate junction point).
             full_path.extend(leg[1:] if full_path else leg)
@@ -1485,13 +1493,15 @@ class SimTransport(MockTransport):
         if cmd_type == protocol.CMD_LOAD_MAP:
             name = msg.get("name")
             if name not in self._maps:
-                return {"ok": False, "name": name}
+                return {"ok": False, "name": name, "error": "map not found"}
             self._nav_map = name
             return {"ok": True, "name": name}
         if cmd_type == protocol.CMD_DELETE_MAP:
             name = msg.get("name")
-            if name not in self._maps or name == self._nav_map:
-                return {"ok": False, "name": name}
+            if name not in self._maps:
+                return {"ok": False, "name": name, "error": "map not found"}
+            if name == self._nav_map:
+                return {"ok": False, "name": name, "error": "map is in use"}
             self._maps.remove(name)
             # Locations are map-frame poses, so they die with their map — a
             # later map reusing this name must not inherit places from a
@@ -1518,6 +1528,24 @@ class SimTransport(MockTransport):
             protocol.CMD_DELETE_ALL_LOCATIONS,
         ):
             return self._handle_location(cmd_type, msg)
+
+        # --- docking -------------------------------------------------------
+        # No dock in the simulator: it refuses like a robot without the
+        # docking addon. list_docks/delete_dock answer as on any robot.
+        if cmd_type == protocol.CMD_LIST_DOCKS:
+            map_name, _ = self._location_map(msg, must_be_active=False)
+            return {"ok": True, "docks": [], "map": map_name}
+        if cmd_type == protocol.CMD_DELETE_DOCK:
+            name = str(msg.get("name") or "default")
+            map_name, error = self._location_map(msg, must_be_active=False)
+            if error or map_name is None:
+                return {"ok": False, "name": name,
+                        "error": (error or "").replace("locations", "docks")}
+            return {"ok": False, "name": name,
+                    "error": f"no dock '{name}' saved on map '{map_name}'"}
+        if cmd_type in (protocol.CMD_SAVE_DOCK, protocol.CMD_DOCK,
+                        protocol.CMD_UNDOCK):
+            return {"ok": False, "error": _NO_DOCKING_IN_SIM}
 
         if cmd_type == protocol.CMD_HEALTH:
             # Field names are the robot's, not invented ones: a program that
@@ -1555,7 +1583,11 @@ class SimTransport(MockTransport):
             if self._speech_provider is None:
                 return {"ok": True}
             result = self._speech_provider(msg.get("text", ""), msg.get("voice"))
-            return {"ok": True if result is None else bool(result)}
+            if result is None or result:
+                return {"ok": True}
+            return {"ok": False,
+                    "error": "the simulator could not speak that — this "
+                             "browser's speech engine refused it"}
 
         if cmd_type == protocol.CMD_SHUTDOWN:
             # There is no machine to halt. Refusing is the honest answer, and

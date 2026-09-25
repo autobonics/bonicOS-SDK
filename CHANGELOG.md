@@ -4,6 +4,49 @@ All notable changes to `bonicos`. This project follows
 [Semantic Versioning](https://semver.org/); while on `0.x`, breaking changes
 bump the minor version.
 
+## [Unreleased]
+
+### Changed — breaking
+
+- **A refused command raises `CommandError` with the robot's reason** instead
+  of returning `False`. This applies to every command method, including
+  `save_location`, `goto_location`, `delete_location`, `delete_all_locations`,
+  the map and nav-mode methods, the base-session methods, `shutdown`,
+  `reconfig_wifi`, `speak`, `set_scan_enabled`, `subscribe`,
+  `camera.pause`/`resume`, and the `head` and `arm` methods. They return
+  `True` on success.
+- `go_to`, `navigate_waypoints`, `goto_location`, `dock`, `undock` and the
+  `wait_for_*` methods return `False` when the goal was accepted but not
+  reached.
+- `system.update_status()` returns `state: "unavailable"` rather than
+  raising.
+- **Arm and `head.look()` report missing joints.** Naming only joints the
+  robot doesn't have raises `CommandError`; naming some moves the rest and
+  emits a `UserWarning`. A joint name that is not a `ServoID` raises.
+- `CommandError` has a `result` attribute with the robot's full reply.
+
+### Added
+
+- **Docking** (addon only): `save_dock`, `dock`, `undock`, `list_docks`,
+  `get_docks`, `delete_dock`, `wait_for_dock`, `get_dock_status`,
+  `get_dock_result`, and the `dock_status` event. On a robot without the
+  docking addon, and in the simulator, they raise `CommandError`.
+- `timeout` on `robot.goto_location`, `robot.navigate_waypoints` and
+  `robot.reconfig_wifi`.
+
+### Fixed
+
+- `reconfig_wifi` waits up to 60 s for the robot to join (was 5 s).
+- An explicitly named joint the robot doesn't have is no longer waited on
+  until the timeout.
+- In the simulator, an unreachable goal makes `go_to` return `False`, as on a
+  robot.
+- In the simulator, a joint the simulated robot doesn't have
+  (`BonicBot.simulated(joints=...)`) is reported as unsupported, as on a
+  robot, instead of as an unknown joint name.
+- `reset_servos()` before the first joint reading no longer warns about
+  joints the robot doesn't have.
+
 ## [0.11.0] — 2026-09-24
 
 ### Fixed

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Optional
+
 
 class RobotError(Exception):
     """Base class for every exception ``bonicos`` raises."""
@@ -12,19 +14,30 @@ class ConnectionError(RobotError):
 
 
 class CommandError(RobotError):
-    """The server returned an ``error`` response for a command.
+    """The robot refused a command, or tried it and failed.
+
+    Raised for both refusal shapes on the wire (PROTOCOL.md §2): an ``error``
+    response, and an ``ack`` whose ``ok`` is false.
 
     This covers *"this robot cannot do that"* as well as ordinary failures.
     Capability is not advertised or gated client-side (PROTOCOL.md §3.1), so a
-    command a robot structurally cannot perform — navigation on a lidar-less
-    robot — comes back as an ``error`` like any other, and the server's
+    command a robot structurally cannot perform — docking on a robot with no
+    docking addon — comes back as a refusal like any other, and the server's
     ``reason`` is what explains it.
+
+    ``command`` is the command that was refused, ``reason`` the robot's
+    explanation, and ``result`` the robot's whole reply — for example
+    ``known`` names on an unknown animation, ``cameras`` on an unknown camera,
+    ``failed`` per servo group.
     """
 
-    def __init__(self, command: str, reason: str) -> None:
+    def __init__(
+        self, command: str, reason: str, result: Optional[dict] = None
+    ) -> None:
         super().__init__(f"{command}: {reason}")
         self.command = command
         self.reason = reason
+        self.result = dict(result or {})
 
 
 class RobotDisconnected(RobotError):

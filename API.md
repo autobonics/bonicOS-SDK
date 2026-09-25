@@ -21,6 +21,12 @@ Wire details live in [PROTOCOL.md](./PROTOCOL.md).
 > with an error explaining why. The **On Lite** lines and 🔌 markers here are
 > how you know in advance. See [PROTOCOL.md](./PROTOCOL.md) §3.1.
 
+> **Errors.** Every method that sends a command raises `CommandError` if the
+> robot refuses it or fails, with the robot's reason as the message. `-> bool`
+> methods return `True` on success. Methods that wait for an outcome — `go_to`,
+> `navigate_waypoints`, `goto_location`, `dock`, `undock`, `wait_for_*` —
+> return `False` when the goal was accepted but not reached. See §11.
+
 ---
 
 ## 1. Connect & lifecycle
@@ -167,7 +173,7 @@ Command queue (build a routine, then run it):
 
 ---
 
-## 4. Navigation, mapping & locations
+## 4. Navigation, mapping, locations & docking
 
 Fire-and-monitor: goal methods start navigation; `wait_for_goal()` blocks on
 `nav_status`. Coordinates are map-frame meters/radians.
@@ -180,7 +186,7 @@ Fire-and-monitor: goal methods start navigation; `wait_for_goal()` blocks on
 | Method | Blocks? | Description |
 |---|---|---|
 | `robot.go_to(x, y, theta=0.0, wait=True, timeout=60.0) -> bool` | `wait` | Navigate to a pose (Nav2). |
-| `robot.navigate_waypoints(points, wait=True) -> bool` | `wait` | `points=[(x,y,theta?), ...]`. |
+| `robot.navigate_waypoints(points, wait=True, timeout=60.0) -> bool` | `wait` | `points=[(x,y,theta?), ...]`. |
 | `robot.cancel_goal() -> bool` | yes | Cancel current navigation. |
 | `robot.wait_for_goal(timeout=30.0) -> bool` | yes | Block until the active goal finishes. |
 | `robot.get_nav_status() -> str` | no | `idle`/`navigating`/`succeeded`/`failed`/`canceled`. |
@@ -198,7 +204,7 @@ default timeouts:
 | Method | Blocks? | Description |
 |---|---|---|
 | `robot.enter_mapping_mode(timeout=30.0) -> bool` | yes | Tear down any nav session, launch slam_toolbox+Nav2. |
-| `robot.enter_navigation_mode(name, timeout=30.0) -> bool` | yes | Tear down any nav session, launch map_server+AMCL+Nav2 localizing on saved map `name`. `False` if the map doesn't exist or the launch fails to come up. |
+| `robot.enter_navigation_mode(name, timeout=30.0) -> bool` | yes | Tear down any nav session, launch map_server+AMCL+Nav2 localizing on saved map `name`. Raises `CommandError` if the map doesn't exist or the launch fails to come up. |
 | `robot.stop_nav_mode(timeout=15.0) -> bool` | yes | Tear down the current nav session → idle. Drive/sensors stay up. |
 | `robot.get_nav_mode() -> dict` | yes (fresh query) | `{"mode": "idle"\|"mapping"\|"navigating", "map": str\|None, "transitioning": bool, "localized": bool}`. `localized` is freshness-checked (from `pose` staleness), not latched — a robot can be `navigating` and still `localized: False` right after entering (AMCL's seed hasn't landed) or later if it loses the pose. |
 
@@ -220,7 +226,7 @@ Mapping:
 | `robot.start_mapping() / stop_mapping() -> bool` | Pause/unpause SLAM integration within an already-entered mapping session (see `enter_mapping_mode` above — this alone doesn't launch anything). |
 | `robot.save_map(name="map") -> bool` | Save the current map. |
 | `robot.load_map(name) -> bool` | Swap the map a *running navigation session* localizes against (nav2 map_server's in-place `/load_map`, auto-reseeding AMCL). Only works while already in navigation mode — use `enter_navigation_mode(name)` to start one. |
-| `robot.delete_map(name) -> bool` | Delete a saved map and its sidecar files. `False` if it doesn't exist or a live navigation session is currently localized against it — `stop_nav_mode()` or switch maps first. |
+| `robot.delete_map(name) -> bool` | Delete a saved map and its sidecar files. Raises `CommandError` if it doesn't exist or a live navigation session is currently localized against it — `stop_nav_mode()` or switch maps first. |
 | `robot.list_maps() -> list[str]` | Saved map names (the server actually returns richer metadata dicts — `list_maps()` extracts just the name; verified against the real M1 sim 2026-08-04). |
 | `robot.get_map() -> dict` | Latest occupancy grid (decoded from cached `map`). |
 | `robot.get_costmap() -> dict` | Latest costmap (decoded from cached `costmap`), same shape as `get_map()`. |
@@ -232,11 +238,38 @@ map is used.
 
 | Method | Description |
 |---|---|
-| `robot.save_location(name, x=None, y=None, theta=0.0, map=None) -> bool` | Two forms. With `x`/`y`, saves a point picked on a map. Without them, saves **where the robot is now** — which requires it to be navigating on that map and localized, and is refused otherwise (a pose saved before AMCL converges means nothing, and only fails much later when someone drives to it). |
-| `robot.goto_location(name, wait=True, map=None) -> bool` | Navigate to a saved location — a lookup plus the normal goal path, so it reports through `nav_status` like `go_to`. `False` if the location doesn't exist, or if the robot isn't navigating on that map: a pose from a *different* map is a well-formed coordinate pointing at a different room. |
+| `robot.save_location(name, x=None, y=None, theta=0.0, map=None) -> bool` | Two forms. With `x`/`y`, saves a point picked on a map. Without them, saves **where the robot is now** — which requires it to be navigating on that map and localized, and raises `CommandError` otherwise (a pose saved before AMCL converges means nothing, and only fails much later when someone drives to it). |
+| `robot.goto_location(name, wait=True, timeout=60.0, map=None) -> bool` | Navigate to a saved location — a lookup plus the normal goal path, so it reports through `nav_status` like `go_to`, and returns whether the robot got there. Raises `CommandError`, before anything moves, if the location doesn't exist or the robot isn't navigating on that map: a pose from a *different* map is a well-formed coordinate pointing at a different room. |
 | `robot.list_locations(map=None) -> list[str]` | Location names, ready to hand back to `goto_location` (the server returns richer records — this extracts the name, same as `list_maps()`). Empty when there's no map to resolve. |
 | `robot.get_locations(map=None) -> list[dict]` | The full records: `{"name", "x", "y", "theta"}`, sorted by name, in the map's frame. |
 | `robot.delete_location(name, map=None) -> bool` / `robot.delete_all_locations(map=None) -> bool` | Manage saved locations. They're also dropped automatically when their map is deleted. |
+
+Docking — **addon only**. A dock is a charging station the robot reverses
+onto, guided by an AprilTag and a rear camera, both part of the docking
+addon. On a robot without the addon, `save_dock`, `dock` and `undock` raise
+`CommandError` saying docking isn't available; the simulator does the same.
+Docks are saved per map, separately from locations. Dock names default to
+`"default"`.
+
+```python
+robot.enter_navigation_mode("home")
+# drive the robot onto the dock by hand, exactly as it should sit charging
+robot.save_dock()
+robot.goto_location("kitchen")
+if not robot.dock():                 # False: tried, but didn't seat
+    print(robot.get_dock_result())   # {"status": "failed", "error_code": ...}
+```
+
+| Method | Description |
+|---|---|
+| `robot.save_dock(name="default") -> bool` | Record **where the robot is parked** as this map's dock. There is no x/y form — park the robot on the dock first. Needs a navigation session and a localized robot. |
+| `robot.dock(name="default", wait=True, timeout=120.0) -> bool` | Drive to the dock and reverse onto it. With `wait`, returns whether the robot ended up docked. Raises `CommandError`, before moving, with no addon, no navigation session on the dock's map, or no dock saved under `name`. |
+| `robot.undock(wait=True, timeout=60.0) -> bool` | Drive straight off the dock. |
+| `robot.wait_for_dock(timeout=120.0) -> bool` | Block until the current dock/undock attempt ends. |
+| `robot.get_dock_status() -> str` | `idle`/`navigating`/`succeeded`/`failed`/`canceled`. |
+| `robot.get_dock_result() -> dict \| None` | The latest attempt: `{"status", "goal_id"}`, plus `error` if it never started and `error_code` if it failed partway. |
+| `robot.list_docks(map=None) -> list[str]` / `robot.get_docks(map=None) -> list[dict]` | Saved docks — names, or `{"name", "x", "y", "theta"}` records. Work on any robot. |
+| `robot.delete_dock(name="default", map=None) -> bool` | Forget a dock. Works on any robot. |
 
 Grouped access: `robot.nav.*`.
 
@@ -258,7 +291,10 @@ fitted set, and since 2026-09-04 the SDK scopes commands *and* the `wait=True`
 convergence check to the joints the robot actually reports — so
 `move_left_arm()` on an A2 moves the two joints it has and returns `True`,
 rather than waiting for five it doesn't. Naming an absent joint explicitly is
-reported by the server (`unsupported`) and skipped rather than waited on.
+reported by the server (`unsupported`) and skipped rather than waited on,
+with a `UserWarning`. If *none* of the joints you named exist on this robot —
+`open_grippers()` with no grippers fitted — it raises `CommandError`, as does
+a joint name that is not a `ServoID`.
 
 | Method | Description |
 |---|---|
@@ -366,15 +402,13 @@ panel actually does.
 int is passed through as a firmware animation index for anything the enum
 does not name yet. An unknown name is refused, with the list the robot knows.
 
-**A refused display command warns rather than returning a bare `False`.** The
-robot answers "no LED matrix on this series" or "the base stack is down"
-inside a normal ack, not a protocol error, so `CommandError` is not raised —
-the SDK re-raises the robot's sentence as a `UserWarning`, since when the
-panel stays dark that sentence is the whole diagnosis.
+**A refused display command raises `CommandError`** with the robot's reason,
+e.g. "no LED matrix on this series" or "the base stack is down". For an
+unknown animation name, `err.result["known"]` lists the names the robot knows.
 
-**`look` returns False when nothing moved.** `tilt` is neck pitch, which an A2
-does not fit; asking for tilt alone on one returns False rather than a success
-for motion that never happened. `speed` is accepted but ignored by the robot
+**`look` raises when nothing could move.** `tilt` is neck pitch, which an A2
+does not have: `look(tilt=…)` alone raises `CommandError`, and `pan` + `tilt`
+moves the pan and warns about the tilt. `speed` is accepted but ignored by the robot
 (position groups take a time, not a rate) — use `duration`.
 
 Grouped access: `robot.head.*`.
@@ -462,7 +496,7 @@ lists what a given robot actually has.
 | `robot.camera.get_frames() -> dict[str, ndarray \| None]` | Latest frame for every camera, keyed by name. |
 | `robot.camera.start(cameras=None)` | Bring the stream up now instead of lazily on first `get_frame()`. Blocks until the link is established (or raises `CameraUnavailable` on timeout/no video path). |
 | `robot.camera.stop()` | Tear down the video path (idempotent). Commands/telemetry are unaffected. |
-| `robot.camera.pause(camera=None) -> bool` | Stop the robot **encoding** video you aren't looking at, without dropping the stream. The robot can't tell you've stopped reading frames, and an unwatched stream measured ~32% of a core on a real A2. Far cheaper than `stop()`/`start()`: the track stays attached, so there's no renegotiation and `resume()` is instant. `False` on a connection with no video at all. |
+| `robot.camera.pause(camera=None) -> bool` | Stop the robot **encoding** video you aren't looking at, without dropping the stream. The robot can't tell you've stopped reading frames, and an unwatched stream measured ~32% of a core on a real A2. Far cheaper than `stop()`/`start()`: the track stays attached, so there's no renegotiation and `resume()` is instant. Raises `CommandError` on a connection with no video at all. |
 | `robot.camera.resume(camera=None) -> bool` | Undo `pause()`. |
 
 If there is no video path on this connection, camera calls raise `CameraUnavailable` rather than silently returning
@@ -557,7 +591,7 @@ capability gating was removed — see PROTOCOL.md §3.1.)
 | `robot.system.start_base_session(timeout=120.0) -> bool` | Bring the base stack up. A real robot does **not** start it on boot — powering on must not energise servos on its own — so this is how a freshly-booted robot is brought to life without SSH. |
 | `robot.system.stop_base_session(timeout=60.0) -> bool` | Take the base stack down; the robot can't move or perceive until it's restarted. Same guard as `restart_base_session` — refused while moving or running a goal. |
 | `robot.get_session_status() -> dict` | Fresh, synchronous `{"base": {...}, "nav": {...}, "health": {...}}` — the full picture behind `system.get_base_session()`/`get_session_health()` in one round trip, without waiting for a push. |
-| `robot.reconfig_wifi(ssid, password) -> bool` | Apply Wi-Fi credentials. |
+| `robot.reconfig_wifi(ssid, password, timeout=60.0) -> bool` | Join a Wi-Fi network. Blocks until the join resolves (up to ~50 s on a wrong password); raises `CommandError` if it failed. |
 
 Grouped-only (`robot.system.*`, not flattened onto `robot.*` — mirrors
 `get_plan()`/`get_costmap()`):
@@ -582,7 +616,7 @@ from bonicos import DisplayAnimation           # LED-matrix animation names
 from bonicos import (
     RobotError,            # base
     ConnectionError,       # connect/handshake failed
-    CommandError,          # server returned `error` — including "this robot can't"
+    CommandError,          # the robot refused or failed — including "this robot can't"
     RobotDisconnected,     # link dropped mid-call
 )
 from bonicos.ai import (   # §9.1
@@ -595,6 +629,23 @@ from bonicos.ai import (   # §9.1
 `CommandError` and `RobotDisconnected` surface as **real Python exceptions**
 inside user code (platform requirement) so student programs can `try/except`
 them.
+
+**Every refusal is a `CommandError`.** `err.reason` is the robot's reason,
+`err.command` the refused command, and `err.result` the robot's full reply
+(e.g. `known` animation names, `cameras`, per-group `failed`):
+
+```python
+from bonicos import CommandError
+
+try:
+    robot.goto_location("kitchen")
+except CommandError as err:
+    print(err.reason)   # "no location 'kitchen' saved on map 'home'"
+```
+
+`go_to`, `navigate_waypoints`, `goto_location`, `dock`, `undock` and the
+`wait_for_*` methods return `False` when the goal was accepted but not
+reached.
 
 > **`FeatureUnavailable` no longer exists.** Capability is not advertised or
 > gated (see [PROTOCOL.md](./PROTOCOL.md) §3.1) — a robot that cannot perform a

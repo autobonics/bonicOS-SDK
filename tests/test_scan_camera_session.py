@@ -7,7 +7,10 @@ from __future__ import annotations
 
 import math
 
+import pytest
+
 from bonicos import protocol
+from bonicos.exceptions import CommandError
 
 # --- laser scan (on demand) -------------------------------------------------
 
@@ -133,7 +136,7 @@ def test_pause_and_resume_camera(robot, transport) -> None:
     assert sent["camera"] == "face"
 
 
-def test_pause_reports_false_on_a_lane_with_no_video(robot, transport) -> None:
+def test_pause_raises_on_a_lane_with_no_video(robot, transport) -> None:
     """A local-WebSocket or BLE connection carries no media tracks. Saying
     "ok" would let a caller believe they'd stopped paying for video."""
     transport.script_ack(
@@ -144,7 +147,8 @@ def test_pause_reports_false_on_a_lane_with_no_video(robot, transport) -> None:
             "cameras": [],
         },
     )
-    assert robot.camera.pause() is False
+    with pytest.raises(CommandError, match="carries no camera tracks"):
+        robot.camera.pause()
 
 
 # --- base session -----------------------------------------------------------
@@ -164,4 +168,5 @@ def test_stop_base_session_refused_while_moving(robot, transport) -> None:
         protocol.CMD_STOP_BASE_SESSION,
         {"ok": False, "error": "robot is moving — stop it first"},
     )
-    assert robot.system.stop_base_session() is False
+    with pytest.raises(CommandError, match="robot is moving"):
+        robot.system.stop_base_session()

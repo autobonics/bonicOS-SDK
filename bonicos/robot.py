@@ -201,9 +201,9 @@ class BonicBot:
         learn (``robot.py`` cannot tell this transport from a real one).
         Navigation is real (if simplified): ``go_to``/``navigate_waypoints``
         plan a path with A* and drive it with Regulated Pure Pursuit,
-        arcing around ``obstacles`` the way Nav2 does. Mapping and named
-        locations remain stubs that ack and do nothing, the same as their
-        stub counterparts on real firmware.
+        arcing around ``obstacles`` the way Nav2 does. Named locations are
+        real too. Mapping commands ack and do nothing, and docking is refused
+        as on a robot without the docking addon.
 
         ``joints`` simulates a robot built with fewer than the full 18
         actuators — servo count is a per-robot build option, so it is worth
@@ -348,9 +348,12 @@ class BonicBot:
         return self.nav.go_to(x, y, theta, wait, timeout)
 
     def navigate_waypoints(
-        self, points: Sequence[Tuple[float, ...]], wait: bool = True
+        self,
+        points: Sequence[Tuple[float, ...]],
+        wait: bool = True,
+        timeout: float = 60.0,
     ) -> bool:
-        return self.nav.navigate_waypoints(points, wait)
+        return self.nav.navigate_waypoints(points, wait, timeout)
 
     def cancel_goal(self) -> bool:
         return self.nav.cancel_goal()
@@ -423,9 +426,13 @@ class BonicBot:
         return self.nav.save_location(name, x, y, theta, map)
 
     def goto_location(
-        self, name: str, wait: bool = True, map: Optional[str] = None
+        self,
+        name: str,
+        wait: bool = True,
+        timeout: float = 60.0,
+        map: Optional[str] = None,
     ) -> bool:
-        return self.nav.goto_location(name, wait, map=map)
+        return self.nav.goto_location(name, wait, timeout, map)
 
     def list_locations(self, map: Optional[str] = None) -> List[str]:
         return self.nav.list_locations(map)
@@ -438,6 +445,42 @@ class BonicBot:
 
     def delete_all_locations(self, map: Optional[str] = None) -> bool:
         return self.nav.delete_all_locations(map)
+
+    # --- docking (addon only, API.md §4) ------------------------------------
+
+    def save_dock(self, name: str = NavigationController.DEFAULT_DOCK) -> bool:
+        return self.nav.save_dock(name)
+
+    def list_docks(self, map: Optional[str] = None) -> List[str]:
+        return self.nav.list_docks(map)
+
+    def get_docks(self, map: Optional[str] = None) -> List[Dict[str, Any]]:
+        return self.nav.get_docks(map)
+
+    def delete_dock(
+        self, name: str = NavigationController.DEFAULT_DOCK, map: Optional[str] = None
+    ) -> bool:
+        return self.nav.delete_dock(name, map)
+
+    def dock(
+        self,
+        name: str = NavigationController.DEFAULT_DOCK,
+        wait: bool = True,
+        timeout: float = 120.0,
+    ) -> bool:
+        return self.nav.dock(name, wait, timeout)
+
+    def undock(self, wait: bool = True, timeout: float = 60.0) -> bool:
+        return self.nav.undock(wait, timeout)
+
+    def wait_for_dock(self, timeout: float = 120.0) -> bool:
+        return self.nav.wait_for_dock(timeout)
+
+    def get_dock_status(self) -> str:
+        return self.nav.get_dock_status()
+
+    def get_dock_result(self) -> Optional[Dict[str, Any]]:
+        return self.nav.get_dock_result()
 
     # --- arms, grippers & neck (API.md §5) ----------------------------------
 
@@ -584,5 +627,5 @@ class BonicBot:
     def get_session_status(self) -> Dict[str, Any]:
         return self.system.get_session_status()
 
-    def reconfig_wifi(self, ssid: str, password: str) -> bool:
-        return self.system.reconfig_wifi(ssid, password)
+    def reconfig_wifi(self, ssid: str, password: str, timeout: float = 60.0) -> bool:
+        return self.system.reconfig_wifi(ssid, password, timeout)

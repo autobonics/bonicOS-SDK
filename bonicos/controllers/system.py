@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any, Dict, Optional
 
 from .. import protocol
+from ..exceptions import CommandError
 from ._base import ControllerBase
 
 
@@ -22,14 +23,14 @@ class SystemController(ControllerBase):
         Slow (a cold Gazebo start alone is ~25s, plus nav teardown/AMCL
         reseed on top — worst case over a minute), hence the long default
         timeout; a WebRTC video peer will drop partway through since the
-        restart takes the camera topics down with it too. Refused (``False``)
-        while the robot is under manual drive or running a navigation goal —
-        cancel/stop that first.
+        restart takes the camera topics down with it too. Refused — raises
+        :class:`~bonicos.CommandError` saying which — while the robot is under
+        manual drive or running a navigation goal; cancel/stop that first.
         """
-        result = self._command(
+        self._command(
             {"type": protocol.CMD_RESTART_BASE_SESSION}, timeout=timeout
         )
-        return bool(result.get("ok", False))
+        return True
 
     def start_base_session(self, timeout: float = 120.0) -> bool:
         """Bring the base ROS stack up — drive, sensors, controllers, TF.
@@ -43,25 +44,26 @@ class SystemController(ControllerBase):
         Safe to call when the stack is already up. In simulation the stack
         normally autostarts, so this is mostly a real-robot affordance.
         """
-        result = self._command(
+        self._command(
             {"type": protocol.CMD_START_BASE_SESSION}, timeout=timeout
         )
-        return bool(result.get("ok", False))
+        return True
 
     def stop_base_session(self, timeout: float = 60.0) -> bool:
         """Take the base ROS stack down — drive, sensors and TF all stop.
 
         The robot stops being able to move or perceive anything until
         ``start_base_session``. Carries the same guard as
-        ``restart_base_session`` and is refused (``False``) while the robot is
-        moving or a navigation goal is running: pulling the drive stack out
+        ``restart_base_session`` and is refused (raises
+        :class:`~bonicos.CommandError`) while the robot is moving or a
+        navigation goal is running: pulling the drive stack out
         from under a moving robot is how AMCL died on 2026-08-09, and "stop
         the stack" must never quietly also mean "abandon the goal".
         """
-        result = self._command(
+        self._command(
             {"type": protocol.CMD_STOP_BASE_SESSION}, timeout=timeout
         )
-        return bool(result.get("ok", False))
+        return True
 
     def get_session_status(self) -> Dict[str, Any]:
         """Synchronous, ungated point-in-time read of the full session state:
@@ -101,16 +103,25 @@ class SystemController(ControllerBase):
 
         The ack is all there is. The process answering is the one being
         halted, so nothing reports the machine actually going down; expect the
-        connection to drop shortly after this returns.
+        connection to drop shortly after this returns. Raises
+        :class:`~bonicos.CommandError` if the robot cannot power itself off,
+        as in the simulator.
         """
-        result = self._command({"type": protocol.CMD_SHUTDOWN}, timeout=timeout)
-        return bool(result.get("ok", False))
+        self._command({"type": protocol.CMD_SHUTDOWN}, timeout=timeout)
+        return True
 
-    def reconfig_wifi(self, ssid: str, password: str) -> bool:
-        result = self._command(
-            {"type": protocol.CMD_RECONFIG_WIFI, "ssid": ssid, "password": password}
+    def reconfig_wifi(self, ssid: str, password: str, timeout: float = 60.0) -> bool:
+        """Join a Wi-Fi network, and raise :class:`~bonicos.CommandError` if
+        the robot could not.
+
+        The robot answers once the join has resolved, which can take up to
+        ~50 s on a wrong password — hence the 60 s default ``timeout``.
+        """
+        self._command(
+            {"type": protocol.CMD_RECONFIG_WIFI, "ssid": ssid, "password": password},
+            timeout=timeout,
         )
-        return bool(result.get("ok", False))
+        return True
 
     def update_status(self) -> Dict[str, Any]:
         """Ask the robot's host what it knows about updates, now:
@@ -125,8 +136,17 @@ class SystemController(ControllerBase):
         This is the read that survives the restart an install causes: the
         cached telemetry from before the swap belongs to a connection that no
         longer exists, so after reconnecting, ask.
+
+        ``unavailable`` is returned as a result, not raised as a
+        :class:`~bonicos.CommandError`, even though the reply carries
+        ``ok: false``.
         """
-        return self._command({"type": protocol.CMD_UPDATE_STATUS})
+        try:
+            return self._command({"type": protocol.CMD_UPDATE_STATUS})
+        except CommandError as e:
+            if e.result.get("state") == "unavailable":
+                return e.result
+            raise
 
     def get_update_status(self) -> Optional[Dict[str, Any]]:
         """Latest cached ``update_progress`` telemetry, or ``None`` if the
@@ -140,9 +160,10 @@ class SystemController(ControllerBase):
 
     def speak(self, text: str, voice: Optional[str] = None) -> bool:
         """Say ``text``. The robot decides *where* it's produced (PROTOCOL §5.6)
-        — the caller never picks a route."""
+        — the caller never picks a route. Raises
+        :class:`~bonicos.CommandError` if it could not be said."""
         payload: Dict[str, object] = {"type": protocol.CMD_SPEAK, "text": text}
         if voice is not None:
             payload["voice"] = voice
-        result = self._command(payload)
-        return bool(result.get("ok", False))
+        self._command(payload)
+        return True

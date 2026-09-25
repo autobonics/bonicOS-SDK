@@ -52,11 +52,20 @@ Every message is a flat JSON object with a `type`:
 | type | when | shape |
 |---|---|---|
 | `ack` | command accepted / completed synchronously | `{ "type":"ack", "id":42, ...result }` |
+| `ack` with `ok: false` | the handler refused or failed | `{ "type":"ack", "id":42, "ok":false, "error":"<reason>", ...result }` |
 | `error` | command rejected or failed | `{ "type":"error", "id":42, "error":"<reason>" }` |
 
 **Two response types, not three.** There is no `feature_unavailable`. A command
-this robot cannot perform is an `error` like any other failure — see §3.1 for
-why capability is not negotiated, and §2.1 for what the error must say.
+this robot cannot perform is refused like any other failure — see §3.1 for
+why capability is not negotiated, and §2.1 for what the refusal must say.
+
+**A refusal is either an `error` or an `ack` with `ok: false`.** Both carry
+the reason in `error` (some replies use `detail`), and an `ok: false` ack may
+carry more fields (`known` names, `cameras`, per-group `failed`). `bonicos`
+raises both as `CommandError(command, reason, result)`. An `ack` with no `ok`
+field is success — `nav_goal`'s `{goal_id}`, `list_maps`'s `{maps}`. One
+exception: `update_status` with `state: "unavailable"` is returned, not
+raised.
 
 `error` reasons currently in use: `not_authenticated`, `rate_limited`,
 `unknown_command:<type>`, `invalid_json`, plus handler-specific strings.
@@ -64,7 +73,8 @@ why capability is not negotiated, and §2.1 for what the error must say.
 ### 2.1 Error text is the contract
 
 Because clients do not predict what a robot can do (§3.1), **the server's error
-string is the entire user experience** for an unsupported operation. It is the
+string is the entire user experience** for an unsupported operation, in
+either refusal shape (§2). It is the
 only thing standing between a user and a robot that silently did nothing. Three
 rules, enforced in each server's router rather than per handler:
 
@@ -295,6 +305,34 @@ drive there.
 
 Locations are dropped when their map is deleted (`delete_map`) — a later map
 reusing that name must not inherit places from a different room.
+
+### 5.3.1 Docking — addon only
+
+A dock is a charging station the robot reverses onto, guided by an AprilTag
+and a rear camera, both part of an optional per-robot **docking addon**.
+
+| type | status | fields | reply |
+|---|---|---|---|
+| `save_dock` | ✅ live (addon) | `name?` (default `"default"`), `map?` | `ack {ok, name, map, x, y, theta}` |
+| `list_docks` | ✅ live | `map?` | `ack {ok, map, docks:[{name,x,y,theta},...]}` |
+| `delete_dock` | ✅ live | `name?`, `map?` | `ack {ok, name, map}` |
+| `dock` | ✅ live (addon) | `name?`, `map?` | `ack {ok, name, map, goal_id}`, then `dock_status` |
+| `undock` | ✅ live (addon) | — | `ack {ok, goal_id}`, then `dock_status` |
+
+A robot without the addon answers `save_dock`, `dock` and `undock` with
+`ok: false` and an `error` saying docking isn't available (§3.1: the client
+sends, the robot refuses). `list_docks`/`delete_dock` answer on every robot.
+`health` includes `capabilities: {"docking": bool}` for display only; clients
+do not gate commands on it.
+
+A dock pose is map-frame and resolves its map exactly as locations do, but is
+stored separately — docks never appear in `list_locations`. `save_dock` has
+**no x/y form**: it records where the robot is parked. `dock` and `save_dock`
+require a navigation session on that map.
+
+`dock`/`undock` ack once the goal is accepted. The ack can take several
+seconds while the robot starts its docking pipeline; `bonicos` waits up to
+30 s.
 
 ### 5.4 Servos / arms / grippers / neck
 
@@ -580,6 +618,7 @@ shapes come from `robot_app/ros/bridge_base.py`.
 | `plan` | `points:[[x,y],...]` | `get_plan()` |
 | `scan` | `origin:{x,y,theta}, angle_min, angle_increment, range_min, range_max, ranges:[float\|null]` | `sensors.get_scan()`, `get_scan_points()` (**on demand** — see `set_scan_enabled`) |
 | `nav_status` | `status: idle\|navigating\|succeeded\|failed\|canceled`, `goal_id?`, `distance_to_goal?` | `wait_for_goal()`, `get_nav_status()` |
+| `dock_status` | `status: navigating\|succeeded\|failed\|canceled`, `goal_id`, `error?`, `error_code?` | `wait_for_dock()`, `get_dock_status()`, `get_dock_result()` |
 | `nav_mode` | `mode: idle\|mapping\|navigating`, `map`, `transitioning`, `localized` | `get_nav_mode()` (cached, replayed on auth — same mechanism as `map`/`costmap`) |
 | `base_session` | `running, owned, transitioning, error` | `system.get_base_session()` (cached, replayed on auth) |
 | `session_health` | `ok, base:{...}, nav:{...}, issues:[...]` | `system.get_session_health()` (cached, replayed on auth; pushed only on change) |

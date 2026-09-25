@@ -9,10 +9,12 @@ from __future__ import annotations
 
 import math
 import time
+import warnings
 from typing import Dict, Optional
 
 from .. import protocol
 from ..enums import ServoID
+from ..exceptions import CommandError
 from ._base import ControllerBase
 
 #: Gripper end stops, from ``protocol.GRIPPER_RANGE_DEG`` — the narrowest
@@ -138,8 +140,13 @@ class ArmController(ControllerBase):
         frame, where the SDK has nothing better to go on.
         """
         observed = self.get_servo_angles()
-        targets = observed or {joint.value: 0.0 for joint in ServoID}
-        return self._send_servo_command({key: 0.0 for key in targets})
+        if observed:
+            return self._send_servo_command({key: 0.0 for key in observed})
+        # The full-registry fallback names joints the caller never asked for,
+        # so none of them count as missing.
+        return self._send_servo_command(
+            {joint.value: 0.0 for joint in ServoID}, named=set()
+        )
 
     def set_single_servo(
         self,
@@ -157,8 +164,8 @@ class ArmController(ControllerBase):
             payload["speed"] = speed
         if acc is not None:
             payload["acc"] = acc
-        result = self._command(payload)
-        return bool(result.get("ok", False))
+        self._command(payload)
+        return True
 
     def get_servo_angles(self) -> Dict[str, float]:
         """Latest joint positions, keyed by **registry camelCase** — the
@@ -241,7 +248,11 @@ class ArmController(ControllerBase):
         *,
         wait: bool = True,
         timeout: Optional[float] = None,
+        named: Optional[set] = None,
     ) -> bool:
+        # The joints checked by `_check_not_driven`: the caller's keys unless
+        # `named` says otherwise.
+        requested = set(angles) if named is None else named
         angles = self._fill_group(angles)
         payload = {
             "type": protocol.CMD_SERVO_COMMAND,
@@ -251,9 +262,17 @@ class ArmController(ControllerBase):
         if not wait:
             self._send(payload)
             return True
-        result = self._command(payload)
-        if not result.get("ok", False):
-            return False
+        try:
+            result = self._command(payload)
+        except CommandError as e:
+            # A reply with per-group reasons in `failed` and no `error`:
+            # report the groups' reasons.
+            failed = e.result.get("failed") or {}
+            if failed and not e.result.get("error"):
+                reasons = "; ".join(f"{g}: {r}" for g, r in sorted(failed.items()))
+                raise CommandError(e.command, reasons, e.result) from None
+            raise
+        self._check_not_driven(requested, result)
 
         # Exclude any key the server said it did not drive (PROTOCOL.md §5.4):
         #   `unknown`     — not a registry joint at all (a typo).
@@ -266,7 +285,7 @@ class ArmController(ControllerBase):
         # An older robot_app reports neither for an absent joint, which is why
         # `_fill_group` no longer sends them in the first place — this is the
         # second line of defence, for a joint the CALLER named explicitly.
-        not_driven = set(result.get("unknown", [])) | set(result.get("unsupported", []))
+        not_driven = set(result.get("unknown", [])) | self._unsupported_keys(result)
         targets = {key: angle for key, angle in angles.items() if key not in not_driven}
         if not targets:
             return True
@@ -280,6 +299,49 @@ class ArmController(ControllerBase):
             )
         )
         return self._wait_for_convergence(targets, effective_timeout)
+
+    @staticmethod
+    def _unsupported_keys(result: dict) -> set:
+        """``unsupported`` as registry keys. The reply names URDF joints
+        (``left_wrist_yaw_joint``); callers use camelCase keys."""
+        return {
+            protocol.REGISTRY_KEY_OF.get(name, name)
+            for name in result.get("unsupported", [])
+        }
+
+    @staticmethod
+    def _check_not_driven(requested: set, result: dict) -> None:
+        """Report joints the caller named that were not driven.
+
+        Only the caller's own keys count, not the ones `_fill_group` added.
+
+        - A name that is not a registry joint (`unknown`) raises.
+        - If every named joint is absent from this robot (`unsupported`), it
+          raises: nothing moved.
+        - If only some are absent, the rest moved, and it warns.
+        """
+        unknown = sorted(requested & set(result.get("unknown", [])))
+        if unknown:
+            raise CommandError(
+                protocol.CMD_SERVO_COMMAND,
+                f"no joint called {', '.join(unknown)} — joint names are the "
+                "ServoID values, e.g. 'leftElbow'",
+                result,
+            )
+        absent = sorted(requested & ArmController._unsupported_keys(result))
+        if absent and len(absent) == len(requested):
+            raise CommandError(
+                protocol.CMD_SERVO_COMMAND,
+                f"this robot has no {', '.join(absent)} — get_servo_angles() "
+                "lists the joints it does have",
+                result,
+            )
+        if absent:
+            warnings.warn(
+                f"this robot has no {', '.join(absent)} — moved the rest",
+                UserWarning,
+                stacklevel=4,
+            )
 
     def _wait_for_convergence(
         self, targets_deg: Dict[str, float], timeout: float

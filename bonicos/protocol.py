@@ -82,6 +82,18 @@ CMD_DELETE_LOCATION = "delete_location"
 CMD_DELETE_ALL_LOCATIONS = "delete_all_locations"
 CMD_LIST_LOCATIONS = "list_locations"
 
+#: §5.3.1 Docking — addon only. A dock pose is map-frame like a location but
+#: stored separately, so it never appears in ``list_locations``.
+#: ``save_dock`` has no x/y form: it records where the robot is parked. A
+#: robot without the docking addon refuses ``save_dock``/``dock``/``undock``;
+#: ``list_docks``/``delete_dock`` answer on any robot. ``dock``/``undock`` ack
+#: ``{goal_id}`` once the goal is accepted and report on ``dock_status``.
+CMD_SAVE_DOCK = "save_dock"
+CMD_LIST_DOCKS = "list_docks"
+CMD_DELETE_DOCK = "delete_dock"
+CMD_DOCK = "dock"
+CMD_UNDOCK = "undock"
+
 #: §5.4 Servos / arms / grippers / neck.
 CMD_SERVO_COMMAND = "servo_command"
 CMD_SERVO_SINGLE = "servo_single"
@@ -175,6 +187,11 @@ EVENT_COSTMAP = "costmap"
 EVENT_PLAN = "plan"
 EVENT_NAV_STATUS = "nav_status"
 
+#: A dock/undock attempt, reported like ``nav_status`` — same ``goal_id``,
+#: same ``navigating`` → ``succeeded``/``failed``/``canceled`` vocabulary.
+#: Adds ``error`` and ``error_code`` on a failed attempt.
+EVENT_DOCK_STATUS = "dock_status"
+
 #: Downsampled laser scan, already transformed into the **map** frame:
 #: ``{"origin": {"x", "y", "theta"}, "angle_min", "angle_increment",
 #: "range_min", "range_max", "ranges": [float | None, ...]}``. ``origin`` is
@@ -246,7 +263,7 @@ TELEMETRY_EVENTS = frozenset(
 
 #: Discrete async events, not a continuous cache — surfaced via per-topic
 #: waiters/queues (e.g. ``wait_for_goal()`` watches ``nav_status``).
-ASYNC_EVENTS = frozenset({EVENT_NAV_STATUS})
+ASYNC_EVENTS = frozenset({EVENT_NAV_STATUS, EVENT_DOCK_STATUS})
 
 #: Events replayed by the server on ``auth`` / ``subscribe`` (PROTOCOL.md
 #: §3, §5.7) since they're expensive to regenerate.
@@ -309,6 +326,11 @@ JOINT_NAME_MAP = {
     "neckYaw": "neck_yaw_joint",
     "neckPitch": "neck_pitch_joint",
 }
+
+#: The reverse of ``JOINT_NAME_MAP``. ``servo_command``'s and ``head_look``'s
+#: ``unsupported`` list names URDF joints (``left_wrist_yaw_joint``), while
+#: ``unknown`` echoes the caller's camelCase keys.
+REGISTRY_KEY_OF = {joint: key for key, joint in JOINT_NAME_MAP.items()}
 
 # --- Servo registry — camelCase key -> ros2_control controller group --------
 #

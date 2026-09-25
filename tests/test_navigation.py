@@ -125,7 +125,8 @@ def test_enter_navigation_mode_builds_payload_and_reports_failure(
         protocol.CMD_ENTER_NAVIGATION_MODE,
         {"ok": False, "mode": "idle", "map": None, "error": "map 'office' not found"},
     )
-    assert robot.nav.enter_navigation_mode("office") is False
+    with pytest.raises(CommandError, match="map 'office' not found"):
+        robot.nav.enter_navigation_mode("office")
     assert transport.sent[-1]["name"] == "office"
 
 
@@ -183,7 +184,8 @@ def test_delete_map_refused_for_map_in_use(robot, transport) -> None:
         protocol.CMD_DELETE_MAP,
         {"ok": False, "name": "office", "error": "map is in use"},
     )
-    assert robot.nav.delete_map("office") is False
+    with pytest.raises(CommandError, match="map is in use"):
+        robot.nav.delete_map("office")
 
 
 def test_named_locations_are_stubs_that_still_ack(robot, transport) -> None:

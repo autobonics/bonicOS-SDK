@@ -30,7 +30,8 @@ def test_restart_base_session_refused_while_moving(robot, transport) -> None:
             "transitioning": False,
         },
     )
-    assert robot.system.restart_base_session() is False
+    with pytest.raises(CommandError, match="robot is moving"):
+        robot.system.restart_base_session()
 
 
 def test_restart_base_session_raises_when_robot_reports_no_session_control(
@@ -132,7 +133,8 @@ def test_shutdown_reports_a_refusal(robot, transport) -> None:
     transport.script_ack(
         protocol.CMD_SHUTDOWN, {"ok": False, "error": "poweroff not permitted"}
     )
-    assert robot.system.shutdown() is False
+    with pytest.raises(CommandError, match="poweroff not permitted"):
+        robot.system.shutdown()
 
 
 def test_get_update_status_reads_cached_telemetry(robot, transport) -> None:

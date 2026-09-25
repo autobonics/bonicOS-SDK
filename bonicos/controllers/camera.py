@@ -75,10 +75,10 @@ class CameraController(ControllerBase):
         Use ``stop()`` when you're done with video altogether, ``pause()``
         when you'll want it back shortly.
 
-        ``camera`` names one; omit it for all of them. Returns ``False`` if
-        this connection carries no video at all (a local-WebSocket or BLE
-        lane), since there is nothing to pause and saying otherwise would let
-        a caller believe they'd saved something.
+        ``camera`` names one; omit it for all of them. Raises
+        :class:`~bonicos.CommandError` if this connection carries no video at
+        all (a local-WebSocket or BLE lane) or the robot has no camera by that
+        name.
         """
         return self._set_enabled(False, camera)
 
@@ -93,5 +93,5 @@ class CameraController(ControllerBase):
         }
         if camera is not None:
             payload["camera"] = camera
-        result = self._command(payload)
-        return bool(result.get("ok", False))
+        self._command(payload)
+        return True

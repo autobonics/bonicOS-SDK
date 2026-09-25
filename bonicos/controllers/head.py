@@ -20,6 +20,7 @@ from typing import Dict, Optional, Union
 
 from .. import protocol
 from ..enums import DisplayAnimation, HeadMode
+from ..exceptions import CommandError
 from ._base import ControllerBase
 
 
@@ -44,7 +45,7 @@ class HeadController(ControllerBase):
                 UserWarning,
                 stacklevel=2,
             )
-        return bool(result.get("ok", False))
+        return True
 
     def look(
         self,
@@ -56,10 +57,10 @@ class HeadController(ControllerBase):
     ) -> bool:
         """Aim the neck. `pan`/`tilt` are DEGREES; at least one is required.
 
-        Returns False when the robot drove none of the axes asked for — `tilt`
-        alone on an A2 is the case that matters, since A2 fits no neck pitch.
-        Reporting True there is how a caller concludes the neck is broken
-        rather than absent.
+        Raises :class:`~bonicos.CommandError` when the robot has none of the
+        axes asked for — for example `tilt` alone on an A2, which has no neck
+        pitch. Asking for both on a robot with only one moves that one and
+        warns about the other.
 
         `speed` is accepted for backwards compatibility and ignored by the
         server: ros2_control position groups take a time, not a rate. Use
@@ -79,34 +80,38 @@ class HeadController(ControllerBase):
         if speed is not None:
             payload["speed"] = speed
         result = self._command(payload)
-        if not result.get("ok", False):
-            return False
-        # Every axis we named came back undriven: the robot has none of them.
-        return len(result.get("unsupported", [])) < axes
+        # `unsupported` names URDF joints (neck_pitch_joint); report them as
+        # this method's axis names.
+        axis_of = {"neckYaw": "pan", "neckPitch": "tilt"}
+        missing = [
+            axis_of.get(protocol.REGISTRY_KEY_OF.get(j, j), j)
+            for j in result.get("unsupported", [])
+        ]
+        if missing and len(missing) >= axes:
+            raise CommandError(
+                protocol.CMD_HEAD_LOOK,
+                f"this robot's neck has no {' or '.join(missing)} joint",
+                result,
+            )
+        if missing:
+            warnings.warn(
+                f"this robot's neck has no {' or '.join(missing)} joint — "
+                "moved the rest",
+                UserWarning,
+                stacklevel=2,
+            )
+        return True
 
     def _display(self, msg: Dict[str, object]) -> bool:
-        """Send one display command, surfacing the robot's reason for refusing.
+        """Send one display command.
 
-        The display handlers answer a refusal — "no LED matrix on this
-        series", the base stack being down, an animation name they do not
-        know — as ``ok: False`` plus a plain-language ``error`` inside a
-        NORMAL ack, not a protocol-level error, so ``_command`` returns it
-        rather than raising and the bare ``bool`` these methods hand back
-        would throw the sentence away. When the face stays dark, that
-        sentence is the whole diagnosis, so it is re-raised as a warning
-        instead of being swallowed.
+        A refusal — no LED matrix on this robot, the base stack down, an
+        unknown animation name — raises :class:`~bonicos.CommandError` with
+        the robot's reason. For an unknown animation,
+        ``CommandError.result["known"]`` lists the names the robot knows.
         """
-        result = self._command(msg)
-        if result.get("ok", False):
-            return True
-        error = result.get("error")
-        if error:
-            warnings.warn(
-                f"{msg.get('type', 'display command')} did nothing: {error}",
-                UserWarning,
-                stacklevel=3,
-            )
-        return False
+        self._command(msg)
+        return True
 
     def set_display_text(self, text: str) -> bool:
         """Show text on the matrix.

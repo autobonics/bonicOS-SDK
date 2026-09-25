@@ -92,8 +92,8 @@ class SensorsController(ControllerBase):
                 return True
 
     def subscribe(self, events: Iterable[str]) -> bool:
-        result = self._command({"type": protocol.CMD_SUBSCRIBE, "events": list(events)})
-        return bool(result.get("ok", False))
+        self._command({"type": protocol.CMD_SUBSCRIBE, "events": list(events)})
+        return True
 
     # --- laser scan (on-demand) --------------------------------------------
 
@@ -107,10 +107,10 @@ class SensorsController(ControllerBase):
         only stops it if no one else wants it — and disconnecting counts as
         turning it off, so a script that forgets doesn't leak.
         """
-        result = self._command(
+        self._command(
             {"type": protocol.CMD_SET_SCAN_ENABLED, "enabled": bool(enabled)}
         )
-        return bool(result.get("ok", False))
+        return True
 
     def get_scan(self) -> Optional[Dict[str, Any]]:
         """Latest laser scan, or ``None`` if none has arrived yet.

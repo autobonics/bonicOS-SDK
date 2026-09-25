@@ -14,6 +14,7 @@ from __future__ import annotations
 import pytest
 
 from bonicos import protocol
+from bonicos.exceptions import CommandError
 
 
 def test_save_location_here_omits_coordinates(robot, transport) -> None:
@@ -84,7 +85,9 @@ def test_goto_location_refused_does_not_wait_for_a_goal(robot, transport) -> Non
         protocol.CMD_GOTO_LOCATION,
         {"ok": False, "name": "nowhere", "error": "no location 'nowhere' saved"},
     )
-    assert robot.nav.goto_location("nowhere", timeout=0.1) is False
+    with pytest.raises(CommandError, match="no location 'nowhere' saved") as err:
+        robot.nav.goto_location("nowhere", timeout=0.1)
+    assert err.value.command == protocol.CMD_GOTO_LOCATION
 
 
 def test_goto_location_waits_on_the_returned_goal_id(robot, transport) -> None:
@@ -118,7 +121,8 @@ def _navigating(bot, name="lab"):
 
 def test_sim_requires_a_map_before_saving(sim_robot) -> None:
     # Idle: there is no map for a map-frame pose to belong to.
-    assert sim_robot.nav.save_location("kitchen") is False
+    with pytest.raises(CommandError, match="locations belong to a map"):
+        sim_robot.nav.save_location("kitchen")
     assert sim_robot.nav.list_locations() == []
 
 
@@ -156,4 +160,5 @@ def test_sim_refuses_a_location_from_another_map(sim_robot) -> None:
     sim_robot.nav.enter_navigation_mode("other")
     # Navigating on "other" — a pose from "lab" is a well-formed coordinate
     # pointing at a different room, so driving there would be wrong.
-    assert sim_robot.nav.goto_location("desk", map="lab", timeout=1.0) is False
+    with pytest.raises(CommandError, match="navigating on 'other', not 'lab'"):
+        sim_robot.nav.goto_location("desk", map="lab", timeout=1.0)

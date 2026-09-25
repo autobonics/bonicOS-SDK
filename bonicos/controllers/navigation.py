@@ -1,4 +1,4 @@
-"""Navigation, mapping & named locations (API.md §4).
+"""Navigation, mapping, named locations & docking (API.md §4).
 
 Fire-and-monitor: goal methods start navigation and get an immediate
 ``ack {goal_id}``; real completion arrives as ``nav_status`` telemetry
@@ -79,9 +79,16 @@ class NavigationController(ControllerBase):
         An event carrying no ``goal_id`` at all still matches — a stub server
         that never sets one is no worse off than before.
         """
+        return self._wait_for_terminal(protocol.EVENT_NAV_STATUS, timeout, goal_id)
+
+    def _wait_for_terminal(
+        self, event_name: str, timeout: float, goal_id: Optional[str]
+    ) -> bool:
+        """Shared by ``wait_for_goal`` and ``wait_for_dock``: both events
+        carry the same ``goal_id`` and status vocabulary."""
         deadline = time.monotonic() + timeout
         while True:
-            event = self._latest(protocol.EVENT_NAV_STATUS)
+            event = self._latest(event_name)
             if event is not None and self._is_for_goal(event, goal_id):
                 status = event.get("status", "idle")
                 if status in _TERMINAL_STATUSES:
@@ -107,18 +114,18 @@ class NavigationController(ControllerBase):
         return float(event.get("distance_to_goal", 0.0)) if event else 0.0
 
     def set_initial_pose(self, x: float, y: float, theta: float = 0.0) -> bool:
-        result = self._command(
+        self._command(
             {"type": protocol.CMD_SET_INITIAL_POSE, "x": x, "y": y, "theta": theta}
         )
-        return bool(result.get("ok", False))
+        return True
 
     def start_navigation(self) -> bool:
-        result = self._command({"type": protocol.CMD_START_NAVIGATION})
-        return bool(result.get("ok", False))
+        self._command({"type": protocol.CMD_START_NAVIGATION})
+        return True
 
     def stop_navigation(self) -> bool:
-        result = self._command({"type": protocol.CMD_STOP_NAVIGATION})
-        return bool(result.get("ok", False))
+        self._command({"type": protocol.CMD_STOP_NAVIGATION})
+        return True
 
     # --- nav mode (mapping <-> navigation session switching) ---------------
     #
@@ -135,25 +142,26 @@ class NavigationController(ControllerBase):
 
     def enter_mapping_mode(self, timeout: float = 30.0) -> bool:
         """Tear down any navigation session and launch slam_toolbox+Nav2."""
-        result = self._command(
+        self._command(
             {"type": protocol.CMD_ENTER_MAPPING_MODE}, timeout=timeout
         )
-        return bool(result.get("ok", False))
+        return True
 
     def enter_navigation_mode(self, name: str, timeout: float = 30.0) -> bool:
         """Tear down any mapping session and launch map_server+AMCL+Nav2
-        localizing on the saved map ``name``. False if the map doesn't exist
-        or the session fails to come up."""
-        result = self._command(
+        localizing on the saved map ``name``. Raises
+        :class:`~bonicos.CommandError` if the map doesn't exist or the session
+        fails to come up."""
+        self._command(
             {"type": protocol.CMD_ENTER_NAVIGATION_MODE, "name": name}, timeout=timeout
         )
-        return bool(result.get("ok", False))
+        return True
 
     def stop_nav_mode(self, timeout: float = 15.0) -> bool:
         """Tear down the current nav session -> idle. Base drive/sensors
         stay up; only the mapping/navigation launch tree is killed."""
-        result = self._command({"type": protocol.CMD_STOP_NAV_MODE}, timeout=timeout)
-        return bool(result.get("ok", False))
+        self._command({"type": protocol.CMD_STOP_NAV_MODE}, timeout=timeout)
+        return True
 
     def get_nav_mode(self) -> Dict[str, Any]:
         """Current session state: ``{"mode", "map", "transitioning",
@@ -179,41 +187,42 @@ class NavigationController(ControllerBase):
     # --- mapping -----------------------------------------------------------
 
     def start_mapping(self) -> bool:
-        result = self._command({"type": protocol.CMD_START_MAPPING})
-        return bool(result.get("ok", False))
+        self._command({"type": protocol.CMD_START_MAPPING})
+        return True
 
     def stop_mapping(self) -> bool:
-        result = self._command({"type": protocol.CMD_STOP_MAPPING})
-        return bool(result.get("ok", False))
+        self._command({"type": protocol.CMD_STOP_MAPPING})
+        return True
 
     def save_map(self, name: str = "map") -> bool:
-        result = self._command({"type": protocol.CMD_SAVE_MAP, "name": name})
-        return bool(result.get("ok", False))
+        self._command({"type": protocol.CMD_SAVE_MAP, "name": name})
+        return True
 
     def load_map(self, name: str) -> bool:
         """Swap the map a running navigation session localizes against.
 
         This is the fast in-place path (nav2 map_server's ``/load_map``
         service) — it only works while already in navigation mode (see
-        ``enter_navigation_mode``); False if map_server isn't up (e.g. still
-        in mapping mode) or the map doesn't exist. The server auto-reseeds
+        ``enter_navigation_mode``); raises :class:`~bonicos.CommandError` if
+        map_server isn't up (e.g. still in mapping mode) or the map doesn't
+        exist. The server auto-reseeds
         AMCL against the new map on success (the last pose remembered on it,
         or its origin if never visited) — check ``get_nav_mode()["localized"]``
         rather than assuming it landed; a slow/loaded host can still miss the
         seeding deadline.
         """
-        result = self._command({"type": protocol.CMD_LOAD_MAP, "name": name})
-        return bool(result.get("ok", False))
+        self._command({"type": protocol.CMD_LOAD_MAP, "name": name})
+        return True
 
     def delete_map(self, name: str) -> bool:
         """Delete a saved map and its sidecar files.
 
-        False if ``name`` doesn't exist or is the map a live navigation
-        session is currently localized against — stop that session
+        Raises :class:`~bonicos.CommandError` if ``name`` doesn't exist or is
+        the map a live navigation session is currently localized against — stop that session
         (``stop_nav_mode``) or switch it to a different map first.
         """
-        result = self._command({"type": protocol.CMD_DELETE_MAP, "name": name})
-        return bool(result.get("ok", False))
+        self._command({"type": protocol.CMD_DELETE_MAP, "name": name})
+        return True
 
     def list_maps(self) -> List[str]:
         """Saved map names.
@@ -293,8 +302,9 @@ class NavigationController(ControllerBase):
         - ``save_location("kitchen")`` records **where the robot is now**.
           Requires the robot to be localized — saving "here" while AMCL has
           not converged records a coordinate that means nothing and only fails
-          much later, when someone navigates to it. Refused (``False``) unless
-          the robot is navigating on the map being saved to.
+          much later, when someone navigates to it. Refused (raises
+          :class:`~bonicos.CommandError`) unless the robot is navigating on
+          the map being saved to.
         - ``save_location("kitchen", x=1.2, y=3.4)`` records **a point picked
           on the map**, which need not be the map currently loaded.
 
@@ -304,8 +314,8 @@ class NavigationController(ControllerBase):
         payload: Dict[str, Any] = {"type": protocol.CMD_SAVE_LOCATION, "name": name}
         if x is not None and y is not None:
             payload.update({"x": x, "y": y, "theta": theta})
-        result = self._command(self._with_map(payload, map))
-        return bool(result.get("ok", False))
+        self._command(self._with_map(payload, map))
+        return True
 
     def goto_location(
         self,
@@ -317,18 +327,19 @@ class NavigationController(ControllerBase):
         """Navigate to a saved location.
 
         A lookup plus the normal ``nav_goal`` path, so it reports progress
-        through ``nav_status`` exactly like ``go_to``. ``False`` if the
+        through ``nav_status`` exactly like ``go_to``, and like ``go_to`` it
+        returns whether the robot got there.
+
+        Raises :class:`~bonicos.CommandError` — before anything moves — if the
         location doesn't exist on the map, or if the robot isn't navigating on
-        that map — see this section's note on why that's refused rather than
+        that map; see this section's note on why that's refused rather than
         driven.
         """
         result = self._command(
             self._with_map({"type": protocol.CMD_GOTO_LOCATION, "name": name}, map)
         )
         if not wait:
-            return bool(result.get("ok", False))
-        if not result.get("ok", True):
-            return False
+            return True
         return self.wait_for_goal(timeout, goal_id=result.get("goal_id"))
 
     def list_locations(self, map: Optional[str] = None) -> List[str]:
@@ -361,16 +372,118 @@ class NavigationController(ControllerBase):
         return records
 
     def delete_location(self, name: str, map: Optional[str] = None) -> bool:
-        result = self._command(
+        self._command(
             self._with_map({"type": protocol.CMD_DELETE_LOCATION, "name": name}, map)
         )
-        return bool(result.get("ok", False))
+        return True
 
     def delete_all_locations(self, map: Optional[str] = None) -> bool:
         """Forget every location on a map. Note locations are also dropped
         automatically when their map is deleted (``delete_map``) — a later map
         reusing the name must not inherit places from a different room."""
-        result = self._command(
+        self._command(
             self._with_map({"type": protocol.CMD_DELETE_ALL_LOCATIONS}, map)
         )
-        return bool(result.get("ok", False))
+        return True
+
+    # --- docking (addon only, PROTOCOL.md §5.3.1) --------------------------
+    #
+    # A dock is a charging station the robot reverses onto, guided by an
+    # AprilTag and a rear camera, both part of the optional docking addon.
+    # The SDK sends every call regardless (PROTOCOL.md §3.1); a robot without
+    # the addon refuses, and that arrives as CommandError.
+    #
+    # Docks are map-frame poses saved per map, separate from locations, and
+    # `dock()` needs a navigation session on the dock's map. Names default to
+    # "default", for the usual one dock per map.
+
+    #: The name every docking call uses when none is given.
+    DEFAULT_DOCK = "default"
+
+    #: Ack timeout for `dock`/`undock`. A robot may start its docking
+    #: pipeline before accepting the goal, which can take several seconds.
+    _DOCK_ACK_TIMEOUT_S = 30.0
+
+    def save_dock(self, name: str = DEFAULT_DOCK) -> bool:
+        """Record where the robot is parked right now as this map's dock.
+
+        Drive the robot onto the dock first — exactly as it should sit when
+        charging — then call this. There is no form that takes coordinates:
+        a dock has to be the exact physical docked position. Saving the same
+        name again overwrites it.
+
+        Raises :class:`~bonicos.CommandError` if this robot has no docking
+        addon, isn't navigating on a map, or doesn't know where it is yet.
+        """
+        self._command({"type": protocol.CMD_SAVE_DOCK, "name": name})
+        return True
+
+    def list_docks(self, map: Optional[str] = None) -> List[str]:
+        """Names of the docks saved on a map (the current one by default).
+        Empty when there are none, or no map to resolve."""
+        return [entry["name"] for entry in self.get_docks(map)]
+
+    def get_docks(self, map: Optional[str] = None) -> List[Dict[str, Any]]:
+        """Full dock records: ``[{"name", "x", "y", "theta"}, ...]``, in the
+        map's frame, sorted by name."""
+        result = self._command(self._with_map({"type": protocol.CMD_LIST_DOCKS}, map))
+        return [entry for entry in result.get("docks", []) if isinstance(entry, dict)]
+
+    def delete_dock(self, name: str = DEFAULT_DOCK, map: Optional[str] = None) -> bool:
+        """Forget a saved dock. Works on any robot, addon or not."""
+        self._command(
+            self._with_map({"type": protocol.CMD_DELETE_DOCK, "name": name}, map)
+        )
+        return True
+
+    def dock(
+        self, name: str = DEFAULT_DOCK, wait: bool = True, timeout: float = 120.0
+    ) -> bool:
+        """Drive to the saved dock and park on it.
+
+        The robot navigates to a point in front of the dock, then reverses
+        onto it using the dock's AprilTag. With ``wait`` it blocks until that
+        finishes and returns whether the robot ended up docked;
+        ``get_dock_result()`` says why when it didn't.
+
+        Raises :class:`~bonicos.CommandError` — before anything moves — if
+        this robot has no docking addon, isn't navigating on the dock's map,
+        or has no dock saved under ``name`` there.
+        """
+        result = self._command(
+            {"type": protocol.CMD_DOCK, "name": name}, timeout=self._DOCK_ACK_TIMEOUT_S
+        )
+        if not wait:
+            return True
+        return self.wait_for_dock(timeout, goal_id=result.get("goal_id"))
+
+    def undock(self, wait: bool = True, timeout: float = 60.0) -> bool:
+        """Drive straight off the dock. Returns whether that finished; raises
+        :class:`~bonicos.CommandError` if this robot has no docking addon."""
+        result = self._command(
+            {"type": protocol.CMD_UNDOCK}, timeout=self._DOCK_ACK_TIMEOUT_S
+        )
+        if not wait:
+            return True
+        return self.wait_for_dock(timeout, goal_id=result.get("goal_id"))
+
+    def wait_for_dock(
+        self, timeout: float = 120.0, goal_id: Optional[str] = None
+    ) -> bool:
+        """Block until the current dock/undock attempt ends; True if it
+        succeeded. The docking counterpart of ``wait_for_goal``."""
+        return self._wait_for_terminal(protocol.EVENT_DOCK_STATUS, timeout, goal_id)
+
+    def get_dock_status(self) -> str:
+        """``"navigating"`` while a dock/undock runs, then ``"succeeded"``,
+        ``"failed"`` or ``"canceled"``; ``"idle"`` before the first attempt."""
+        event = self._latest(protocol.EVENT_DOCK_STATUS)
+        return event.get("status", "idle") if event else "idle"
+
+    def get_dock_result(self) -> Optional[Dict[str, Any]]:
+        """The latest dock/undock report in full: ``{"status", "goal_id"}``,
+        plus ``error`` when it never started and ``error_code`` when it failed
+        partway. ``None`` before the first
+        attempt."""
+        event = self._latest(protocol.EVENT_DOCK_STATUS)
+        return dict(event) if event else None
