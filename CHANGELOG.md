@@ -4,7 +4,7 @@ All notable changes to `bonicos`. This project follows
 [Semantic Versioning](https://semver.org/); while on `0.x`, breaking changes
 bump the minor version.
 
-## [Unreleased]
+## [0.12.0] — 2026-09-26
 
 ### Changed — breaking
 
