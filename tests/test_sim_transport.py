@@ -984,35 +984,79 @@ def test_speak_acks_true_with_no_provider(sim: SimTransport) -> None:
     assert ack.get("ok") is True
 
 
-def test_speak_calls_provider_with_text_and_voice(sim: SimTransport) -> None:
+def test_speak_calls_provider_with_every_option(sim: SimTransport) -> None:
     calls = []
 
-    def provider(text, voice):
-        calls.append((text, voice))
+    def provider(text, voice, language, rate, engine):
+        calls.append((text, voice, language, rate, engine))
         return True
 
     sim.set_speech_provider(provider)
-    cmd_id = sim.send({"type": protocol.CMD_SPEAK, "text": "hello", "voice": "en-US"})
+    cmd_id = sim.send({"type": protocol.CMD_SPEAK, "text": "hello",
+                       "voice": "Zephyr", "engine": "cloud",
+                       "language": "en-US", "rate": 1.2})
     ack = sim.wait_for_ack(cmd_id)
 
-    assert calls == [("hello", "en-US")]
+    assert calls == [("hello", "Zephyr", "en-US", 1.2, "cloud")]
     assert ack.get("ok") is True
 
 
-def test_speak_provider_voice_defaults_to_none(sim: SimTransport) -> None:
+@pytest.mark.parametrize("fields, fragment", [
+    ({"text": "  "}, "text is empty"),
+    ({"text": "hi", "engine": "polly"}, "unknown engine"),
+    ({"text": "hi", "rate": 2.5}, "rate must be"),
+    ({"text": "hi", "rate": True}, "rate must be"),
+    ({"text": "hi", "voice": "Zephyr"}, "needs engine='cloud'"),
+    ({"text": "hi", "voice": "en-US-Chirp3-HD-Zephyr", "engine": "cloud"},
+     "a name such as 'Zephyr'"),
+    ({"text": "hi", "agent_id": "  "}, "agent_id must be a non-empty string"),
+])
+def test_speak_refuses_what_a_robot_refuses(sim: SimTransport, fields, fragment) -> None:
     calls = []
-    sim.set_speech_provider(lambda text, voice: calls.append((text, voice)))
+    sim.set_speech_provider(lambda text, *_: calls.append(text))
+    ack = sim.wait_for_ack(sim.send({"type": protocol.CMD_SPEAK, **fields}))
+    assert ack.get("ok") is False and fragment in ack["error"]
+    assert calls == []
+
+
+def test_speak_provider_options_default_to_none_and_edge(sim: SimTransport) -> None:
+    calls = []
+    sim.set_speech_provider(lambda *args: calls.append(args))
 
     cmd_id = sim.send({"type": protocol.CMD_SPEAK, "text": "hi"})
     sim.wait_for_ack(cmd_id)
 
-    assert calls == [("hi", None)]
+    assert calls == [("hi", None, None, None, "edge")]
+
+
+def test_speak_provider_drops_options_for_an_agent(sim: SimTransport) -> None:
+    # An agent's configured voice replaces the caller's options on a robot;
+    # the sim has no agents, so the provider gets the text alone.
+    calls = []
+    sim.set_speech_provider(lambda *args: calls.append(args))
+
+    ack = sim.wait_for_ack(sim.send({
+        "type": protocol.CMD_SPEAK, "text": "hi", "agent_id": "agent-1",
+        "voice": "Zephyr", "language": "hi-IN", "rate": 1.5, "engine": "cloud",
+    }))
+
+    assert ack.get("ok") is True
+    assert calls == [("hi", None, None, None, "edge")]
+
+
+def test_speak_provider_rate_is_a_float(sim: SimTransport) -> None:
+    calls = []
+    sim.set_speech_provider(lambda text, voice, language, rate, engine: calls.append(rate))
+
+    sim.wait_for_ack(sim.send({"type": protocol.CMD_SPEAK, "text": "hi", "rate": 2}))
+
+    assert calls == [2.0] and isinstance(calls[0], float)
 
 
 def test_speak_provider_none_return_acks_true(sim: SimTransport) -> None:
     # A fire-and-forget bridge (e.g. a bare `speechSynthesis.speak()` call)
     # has nothing to report back — that must still read as success.
-    sim.set_speech_provider(lambda text, voice: None)
+    sim.set_speech_provider(lambda *_: None)
 
     cmd_id = sim.send({"type": protocol.CMD_SPEAK, "text": "hi"})
     ack = sim.wait_for_ack(cmd_id)
@@ -1020,7 +1064,7 @@ def test_speak_provider_none_return_acks_true(sim: SimTransport) -> None:
 
 
 def test_speak_provider_false_return_acks_false(sim: SimTransport) -> None:
-    sim.set_speech_provider(lambda text, voice: False)
+    sim.set_speech_provider(lambda *_: False)
 
     cmd_id = sim.send({"type": protocol.CMD_SPEAK, "text": "hi"})
     ack = sim.wait_for_ack(cmd_id)
@@ -1028,7 +1072,7 @@ def test_speak_provider_false_return_acks_false(sim: SimTransport) -> None:
 
 
 def test_set_speech_provider_none_restores_stub_behaviour(sim: SimTransport) -> None:
-    sim.set_speech_provider(lambda text, voice: False)
+    sim.set_speech_provider(lambda *_: False)
     sim.set_speech_provider(None)
 
     cmd_id = sim.send({"type": protocol.CMD_SPEAK, "text": "hi"})

@@ -581,8 +581,18 @@ class BonicBot:
 
     # --- speech (API.md §7) --------------------------------------------------
 
-    def speak(self, text: str, voice: Optional[str] = None) -> bool:
-        return self.system.speak(text, voice)
+    def speak(
+        self,
+        text: str,
+        voice: Optional[str] = None,
+        *,
+        language: Optional[str] = None,
+        rate: Optional[float] = None,
+        engine: Optional[str] = None,
+        agent_id: Optional[str] = None,
+    ) -> bool:
+        return self.system.speak(text, voice, language=language, rate=rate,
+                                 engine=engine, agent_id=agent_id)
 
     # --- sensors & telemetry (API.md §8) ------------------------------------
 

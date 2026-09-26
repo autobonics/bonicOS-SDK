@@ -158,12 +158,46 @@ class SystemController(ControllerBase):
         """
         return self._latest(protocol.EVENT_UPDATE_PROGRESS)
 
-    def speak(self, text: str, voice: Optional[str] = None) -> bool:
-        """Say ``text``. The robot decides *where* it's produced (PROTOCOL §5.6)
-        — the caller never picks a route. Raises
-        :class:`~bonicos.CommandError` if it could not be said."""
+    def speak(
+        self,
+        text: str,
+        voice: Optional[str] = None,
+        *,
+        language: Optional[str] = None,
+        rate: Optional[float] = None,
+        engine: Optional[str] = None,
+        agent_id: Optional[str] = None,
+    ) -> bool:
+        """Say ``text`` through the robot's speaker.
+
+        ``language`` is a tag such as ``"en-US"`` or ``"hi-IN"``; ``rate`` runs
+        from 0.5 to 2.0, where 1.0 is normal speed and higher is faster.
+        ``engine`` is ``"edge"`` — an on-device voice, free and offline, the
+        default — or ``"cloud"``, a cloud voice that speaks many more
+        languages and is paid for from the robot's credits (robots with
+        BonicOS only). ``voice`` names a cloud voice, such as ``"Zephyr"``, so
+        it needs ``engine="cloud"``; it speaks in ``language``.
+
+        ``agent_id`` speaks in that BonicAI agent's configured voice instead,
+        ignoring ``voice``, ``language``, ``rate`` and ``engine`` (robots with
+        BonicOS only).
+
+        Returns once the robot has queued the speech, not once it has been
+        heard. Raises :class:`~bonicos.CommandError` with the robot's reason
+        if it can't be said — a language the voice doesn't speak, for
+        example, or a cloud voice on a robot without BonicOS. API.md §7 lists
+        every supported language and voice.
+        """
         payload: Dict[str, object] = {"type": protocol.CMD_SPEAK, "text": text}
         if voice is not None:
             payload["voice"] = voice
+        if language is not None:
+            payload["language"] = language
+        if rate is not None:
+            payload["rate"] = rate
+        if engine is not None:
+            payload["engine"] = engine
+        if agent_id is not None:
+            payload["agent_id"] = agent_id
         self._command(payload)
         return True

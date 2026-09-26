@@ -114,6 +114,10 @@ forward-compat with v1 proximity auth).
 
 - **v0 (current): open.** No token verification; access is gated platform-side.
   The SDK still sends `token` if `BONICOS_TOKEN` is set.
+- An optional `role` names the client: `"bonicos"` for the BonicOS app,
+  `"controller"` for the controller app; absent or anything else is an SDK
+  client. It is an address, not a permission — `speak` on a robot with BonicOS
+  is delivered to the `bonicos` client (§5.6). The SDK sends no `role`.
 - After `auth_result` the server **replays cached `map`/`costmap`** so a client
   joining mid-session renders immediately.
 - `protocol_version` — see §9.
@@ -443,26 +447,38 @@ section always anticipated. It carries radians like every other joint command
 does not fit in `unsupported`, the same way `servo_command` does. A2 fits neck
 yaw but no neck pitch, so `tilt` comes back unsupported there.
 
-### 5.6 Speech — `speak` (model-topology-aware)
+### 5.6 Speech — `speak`
 
-**One wire command, three execution paths chosen server-side** from series
-config + whether a tablet is attached. The SDK just sends `speak`.
+One command; **where** it is spoken is the robot's fitment, never the caller's
+choice.
 
-| type | status | fields | reply |
-|---|---|---|---|
-| `speak` | ➕ new | `text`, `voice?` | `ack {ok}` |
-
-Server-side routing (see also README topology table):
-
-| Model / config | Where `speak` executes | robot_app action |
+| type | fields | reply |
 |---|---|---|
-| **Lite** (always has tablet) | Android TTS | *robot_app is not the server here* — the Flutter WS server handles `speak` directly |
-| **Pro + tablet** | Android TTS | relay `text` to the tablet **via ESP32** (a `/esp/*` topic) — 🔌 stub until firmware/ROS wire it |
-| **Pro, no tablet** (a2-pro) | Pi's own TTS | invoke on-device TTS — 🔌 stub until the TTS node/service exists |
+| `speak` | `text`, `language?`, `voice?`, `rate?`, `engine?`, `agent_id?` | `ack {ok}` |
 
-Amplifier ownership (processor vs tablet) is decided when the user enters
-**developer mode** and is out of scope for the wire protocol — `speak` behaves
-the same regardless; only *who drives the amplifier* changes underneath.
+- `text` — non-empty, at most 1000 characters.
+- `language` — a language code (`en-US`, `hi-IN`). Absent: English (`en-US`).
+- `rate` — 0.5–2.0, 1.0 normal, higher faster (`SPEAK_RATE_RANGE`).
+- `engine` — `"edge"` (default; an on-device voice) or `"cloud"` (a cloud
+  voice paid for from the robot's credits; robots with BonicOS only)
+  (`SPEAK_ENGINES`).
+- `voice` — a cloud voice name such as `"Zephyr"`, never a full provider voice
+  id; it speaks in `language`. Refused unless `engine` is `"cloud"`.
+- `agent_id` — speak in that BonicAI agent's configured voice; `language`,
+  `voice`, `rate` and `engine` are then ignored. Robots with BonicOS only.
+
+API.md §7 lists every language code and voice name.
+
+The ack comes once the speech is queued, not once it has been heard. Speech is
+queued in order. Every refusal is `ok: false` with an `error` saying why — an
+invalid field, a language or voice the robot cannot speak, `cloud` or
+`agent_id` without BonicOS, BonicOS not connected, no credits, or too much
+speech already waiting.
+
+| Robot | Spoken by |
+|---|---|
+| With BonicOS | the BonicOS app — its on-device voice (`edge`), a cloud voice (`cloud`) or an agent's voice (`agent_id`) |
+| Without BonicOS | the robot's own on-device voice; English; no `cloud`, no `agent_id` |
 
 ### 5.7 System & session
 

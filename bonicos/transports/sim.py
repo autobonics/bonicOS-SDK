@@ -198,6 +198,35 @@ def _clamp(value: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, value))
 
 
+def _speak_refusal(msg: dict) -> Optional[str]:
+    """Why a robot would refuse this ``speak``, in the robot's words, or None."""
+    text = msg.get("text")
+    if not isinstance(text, str) or not text.strip():
+        return "nothing to say — text is empty"
+    agent_id = msg.get("agent_id")
+    if agent_id is not None:
+        # The agent's own settings replace every other option, unchecked.
+        if not isinstance(agent_id, str) or not agent_id.strip():
+            return "agent_id must be a non-empty string"
+        return None
+    engine = msg.get("engine") or protocol.SPEAK_ENGINE_EDGE
+    if engine not in protocol.SPEAK_ENGINES:
+        return f"unknown engine {engine!r} — use 'edge' (on-device) or 'cloud'"
+    rate = msg.get("rate")
+    lo, hi = protocol.SPEAK_RATE_RANGE
+    if rate is not None and (isinstance(rate, bool) or not isinstance(rate, (int, float))
+                             or not lo <= rate <= hi):
+        return f"rate must be a number from {lo} to {hi} — 1.0 is normal speed"
+    if msg.get("voice") and engine != protocol.SPEAK_ENGINE_CLOUD:
+        return ("voice picks a cloud voice, so it needs engine='cloud' — "
+                "on-device voices can't be chosen")
+    voice = msg.get("voice")
+    if voice and "-" in voice:
+        return (f"voice is a name such as 'Zephyr', not {voice!r} — "
+                "the language comes from the language argument")
+    return None
+
+
 class SimTransport(MockTransport):
     """A simulated BonicBot: differential-drive pose + ramped servos.
 
@@ -445,26 +474,27 @@ class SimTransport(MockTransport):
     # calls a plain callable it was handed.
 
     def set_speech_provider(
-        self, provider: Optional[Callable[[str, Optional[str]], Optional[bool]]]
+        self,
+        provider: Optional[Callable[
+            [str, Optional[str], Optional[str], Optional[float], str],
+            Optional[bool],
+        ]],
     ) -> None:
-        """Install a host callable invoked as ``provider(text, voice)`` for
-        every ``speak()`` call, ``voice`` being ``None`` when the caller
-        didn't pass one.
+        """Install a host callable invoked as
+        ``provider(text, voice, language, rate, engine)`` for every
+        ``speak()`` call that passes the argument checks a robot makes.
+        ``voice``, ``language`` and ``rate`` are ``None`` when the caller
+        didn't pass them; ``engine`` is always one of
+        ``protocol.SPEAK_ENGINES``, ``"edge"`` when the caller didn't pass one.
+        A host that has no cloud voices speaks ``"cloud"`` with the closest
+        voice it has.
 
-        Unlike the camera, there is no hard-failure path: `SystemController
-        .speak()` (PROTOCOL.md §5.6) already acks unconditionally on a real
-        robot with no TTS route wired up yet (`command_handlers.py`'s own
-        `speak` is a stub), so a native user who never installs a provider
-        keeps getting that same silent, successful ack — installing a
-        provider is purely additive, never a new way for `speak()` to fail
-        that a program written before this seam existed didn't already
-        handle.
+        With no provider installed, a valid ``speak()`` succeeds silently.
 
         The provider's return value maps to the command's `ok`: `True`/
         `False` pass through, and `None` (a fire-and-forget bridge with
         nothing to report, e.g. a bare `speechSynthesis.speak()` call) is
-        treated as success — the same "no news is good news" default the
-        pre-existing stub always gave.
+        treated as success.
         """
         self._speech_provider = provider
 
@@ -1578,11 +1608,26 @@ class SimTransport(MockTransport):
             return {"ok": True, "events": list(msg.get("events", []))}
 
         if cmd_type == protocol.CMD_SPEAK:
-            # See `set_speech_provider` for the contract. No provider ->
-            # the same silent ack this command always gave.
+            # Refuse what a robot refuses, so a program that works here does
+            # not fail on its first real run. Then see `set_speech_provider`.
+            error = _speak_refusal(msg)
+            if error:
+                return {"ok": False, "error": error}
             if self._speech_provider is None:
                 return {"ok": True}
-            result = self._speech_provider(msg.get("text", ""), msg.get("voice"))
+            if msg.get("agent_id"):
+                # The agent's own voice settings replace the caller's, as on
+                # a robot; the sim has no agents, so it speaks plainly.
+                options: tuple = (None, None, None, protocol.SPEAK_ENGINE_EDGE)
+            else:
+                rate = msg.get("rate")
+                options = (
+                    msg.get("voice") or None,
+                    msg.get("language") or None,
+                    None if rate is None else float(rate),
+                    msg.get("engine") or protocol.SPEAK_ENGINE_EDGE,
+                )
+            result = self._speech_provider(msg.get("text", ""), *options)
             if result is None or result:
                 return {"ok": True}
             return {"ok": False,

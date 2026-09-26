@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from bonicos import protocol
+from bonicos import BonicBot, protocol
 from bonicos.exceptions import CommandError
 
 
@@ -149,9 +149,33 @@ def test_get_update_status_reads_cached_telemetry(robot, transport) -> None:
     assert progress["percent"] == 40
 
 
-def test_speak(robot, transport) -> None:
+def test_speak_sends_only_what_was_given(robot, transport) -> None:
     transport.script_ack(protocol.CMD_SPEAK, {"ok": True})
-    assert robot.system.speak("hello there", voice="default") is True
+    assert robot.system.speak("hello there") is True
+    assert transport.sent[-1] == {"type": protocol.CMD_SPEAK, "text": "hello there",
+                                  "id": transport.sent[-1]["id"]}
+
+
+def test_speak_forwards_every_option(robot, transport) -> None:
+    transport.script_ack(protocol.CMD_SPEAK, {"ok": True})
+    # Through the BonicBot facade, so its forwarding is covered too.
+    assert BonicBot.speak(robot, "namaste", "Zephyr", language="hi-IN",
+                          rate=0.9, engine="cloud") is True
     sent = transport.sent[-1]
-    assert sent["text"] == "hello there"
-    assert sent["voice"] == "default"
+    assert (sent["text"], sent["voice"], sent["language"], sent["rate"],
+            sent["engine"]) == ("namaste", "Zephyr", "hi-IN", 0.9, "cloud")
+    assert "agent_id" not in sent
+
+
+def test_speak_forwards_agent_id(robot, transport) -> None:
+    transport.script_ack(protocol.CMD_SPEAK, {"ok": True})
+    assert BonicBot.speak(robot, "welcome", agent_id="agent-42") is True
+    assert transport.sent[-1]["agent_id"] == "agent-42"
+
+
+def test_speak_raises_the_robots_reason(robot, transport) -> None:
+    transport.script_ack(protocol.CMD_SPEAK, {
+        "ok": False, "error": "cloud voices need BonicOS, which this robot "
+                              "doesn't have"})
+    with pytest.raises(CommandError, match="cloud voices need BonicOS"):
+        robot.system.speak("hi", engine="cloud")

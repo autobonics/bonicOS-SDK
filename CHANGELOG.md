@@ -4,6 +4,32 @@ All notable changes to `bonicos`. This project follows
 [Semantic Versioning](https://semver.org/); while on `0.x`, breaking changes
 bump the minor version.
 
+## [Unreleased]
+
+### Added
+
+- **`speak()` takes `language`, `rate` and `engine`.** `rate` runs 0.5–2.0
+  (1.0 normal). `engine` is `"edge"` (default, on-device) or `"cloud"` (more
+  languages and voices, paid from the robot's credits, BonicOS only).
+  `protocol.SPEAK_ENGINES` and `protocol.SPEAK_RATE_RANGE` hold the allowed
+  values.
+- **`speak(agent_id=...)`** speaks in a BonicAI agent's configured voice,
+  ignoring the other options (BonicOS only).
+- `speak()` is audible on every robot: through the BonicOS app where fitted,
+  otherwise through the robot's own English voice. API.md §7 lists every
+  supported language code and voice name.
+
+### Changed — breaking
+
+- `speak()`'s `voice` is a cloud voice name such as `"Zephyr"` — not a full
+  voice id like `"en-US-Chirp3-HD-Zephyr"` — and needs `engine="cloud"`; the
+  language comes from `language`. Anything else raises `CommandError`.
+- The simulator refuses the same invalid `speak()` arguments a robot does.
+- `SimTransport.set_speech_provider()` calls its provider as
+  `provider(text, voice, language, rate, engine)`, so a host can speak in the
+  language and at the speed asked for. `engine` is always `"edge"` or
+  `"cloud"`; the rest are `None` when not passed.
+
 ## [0.12.0] — 2026-09-26
 
 ### Changed — breaking

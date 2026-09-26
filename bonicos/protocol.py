@@ -109,6 +109,12 @@ CMD_DISPLAY_CLEAR = "display_clear"
 
 #: §5.6 Speech.
 CMD_SPEAK = "speak"
+#: ``speak`` engines: an on-device voice (the default) or a cloud voice.
+SPEAK_ENGINE_EDGE = "edge"
+SPEAK_ENGINE_CLOUD = "cloud"
+SPEAK_ENGINES = (SPEAK_ENGINE_EDGE, SPEAK_ENGINE_CLOUD)
+#: ``speak`` rate bounds, inclusive. 1.0 is normal speed; higher is faster.
+SPEAK_RATE_RANGE = (0.5, 2.0)
 
 #: §5.7 System & session.
 CMD_HEALTH = "health"

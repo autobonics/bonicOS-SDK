@@ -417,16 +417,103 @@ Grouped access: `robot.head.*`.
 
 ## 7. Speech
 
-One method; the robot decides *where* the audio is produced (Android TTS via
-tablet, or the Pi's own TTS) based on model + config — the caller never picks
-(PROTOCOL §5.6). **🔌 stub on pro until the ESP-relay / on-device TTS path lands;
-fully live on lite** (the Flutter app serves and speaks directly).
-
-**On Lite:** ✅ fully live — like §6, stronger on Lite than on Pro today.
+**On Lite:** ✅ available — BonicOS is always fitted.
 
 | Method | Description |
 |---|---|
-| `robot.speak(text, voice=None) -> bool` | Say `text`. Blocks until accepted. |
+| `robot.speak(text, voice=None, *, language=None, rate=None, engine=None, agent_id=None) -> bool` | Say `text` (at most 1000 characters). Returns once the speech is queued, not once it has been heard. |
+
+Calls are spoken in order. If the robot can't say something it raises
+`CommandError` with the reason, so a program never goes quietly silent.
+
+### Where the words come out
+
+The robot decides, from how it is fitted — you never pick:
+
+| Robot | Who speaks | `engine="edge"` | `engine="cloud"` | `agent_id` |
+|---|---|---|---|---|
+| **With BonicOS** (the BonicOS app on the robot's tablet or phone) | the BonicOS app | ✅ the tablet's on-device voice | ✅ | ✅ |
+| **Without BonicOS** (an A-series pro without the app) | the robot itself, through its own speaker | ✅ English only | ❌ | ❌ |
+
+`engine="cloud"` and `agent_id` on a robot without BonicOS raise
+`CommandError`: *"cloud voices need BonicOS, which this robot doesn't have"*.
+
+### Options
+
+| Option | Values | Default | Notes |
+|---|---|---|---|
+| `language` | a code from the tables below | the voice's own language (English, `en-US`) | Case-insensitive. |
+| `rate` | `0.5` to `2.0` | `1.0` | Speaking speed; higher is faster. Works with every engine. |
+| `engine` | `"edge"` or `"cloud"` | `"edge"` | `edge` is free and works offline. `cloud` is higher quality, speaks every language below, and uses the robot's credits. |
+| `voice` | a cloud voice name from the table below, e.g. `"Zephyr"` | `"Zephyr"` | Cloud only: needs `engine="cloud"`. Just the name — **not** `"en-US-Chirp3-HD-Zephyr"`; the language comes from `language`. On-device voices can't be chosen. |
+| `agent_id` | the id of a BonicAI agent | — | Speaks in that agent's configured voice, language and speed. `voice`, `language`, `rate` and `engine` are then ignored. BonicOS only. |
+
+### Languages
+
+**Without BonicOS (the robot's own voice):** English only — `language="en-US"`,
+or leave `language` out. Any other code raises `CommandError`.
+
+**With BonicOS, `engine="cloud"`:** every language below.
+
+**With BonicOS, `engine="edge"`:** the languages below that are installed on
+the tablet's on-device voice. English (`en-US`) is always installed. For any
+other language, add it once on the tablet: **Settings → Accessibility →
+Text-to-speech output → Speech Services by Google (⚙) → Install voice data**
+(the exact path varies a little between tablets). Until then the robot raises
+`CommandError` naming the missing language rather than speaking the wrong one.
+
+| Language | Code | Language | Code |
+|---|---|---|---|
+| Arabic | `ar-XA` | Kannada | `kn-IN` |
+| Bengali (India) | `bn-IN` | Korean | `ko-KR` |
+| Bulgarian | `bg-BG` | Latvian | `lv-LV` |
+| Cantonese (Hong Kong) | `yue-HK` | Lithuanian | `lt-LT` |
+| Croatian | `hr-HR` | Malayalam | `ml-IN` |
+| Czech | `cs-CZ` | Mandarin Chinese | `cmn-CN` |
+| Danish | `da-DK` | Marathi | `mr-IN` |
+| Dutch (Belgium) | `nl-BE` | Norwegian Bokmål | `nb-NO` |
+| Dutch (Netherlands) | `nl-NL` | Polish | `pl-PL` |
+| English (Australia) | `en-AU` | Portuguese (Brazil) | `pt-BR` |
+| English (India) | `en-IN` | Punjabi | `pa-IN` |
+| English (UK) | `en-GB` | Romanian | `ro-RO` |
+| English (US) | `en-US` | Russian ¹ | `ru-RU` |
+| Estonian | `et-EE` | Serbian | `sr-RS` |
+| Finnish | `fi-FI` | Slovak | `sk-SK` |
+| French (Canada) | `fr-CA` | Slovenian | `sl-SI` |
+| French (France) | `fr-FR` | Spanish (Spain) | `es-ES` |
+| German | `de-DE` | Spanish (US) | `es-US` |
+| Greek | `el-GR` | Swedish | `sv-SE` |
+| Gujarati | `gu-IN` | Tamil | `ta-IN` |
+| Hebrew | `he-IL` | Telugu | `te-IN` |
+| Hindi | `hi-IN` | Thai | `th-TH` |
+| Hungarian | `hu-HU` | Turkish | `tr-TR` |
+| Indonesian | `id-ID` | Ukrainian | `uk-UA` |
+| Italian | `it-IT` | Urdu | `ur-IN` |
+| Japanese | `ja-JP` | Vietnamese | `vi-VN` |
+
+¹ Russian has only eight cloud voices: Aoede, Charon, Fenrir, Kore, Leda, Orus,
+Puck and Zephyr.
+
+### Cloud voices
+
+Every voice speaks every language in the table above (except as noted for
+Russian). Pass just the name.
+
+| | Voices |
+|---|---|
+| **Female** | Achernar, Aoede, Autonoe, Callirrhoe, Despina, Erinome, Gacrux, Kore, Laomedeia, Leda, Pulcherrima, Sulafat, Vindemiatrix, Zephyr |
+| **Male** | Achird, Algenib, Algieba, Alnilam, Charon, Enceladus, Fenrir, Iapetus, Orus, Puck, Rasalgethi, Sadachbia, Sadaltager, Schedar, Umbriel, Zubenelgenubi |
+
+### Examples
+
+```python
+robot.speak("Hello!")                                    # default voice, any robot
+robot.speak("Slowly now.", rate=0.8)                     # any robot
+robot.speak("नमस्ते", language="hi-IN", engine="cloud")   # BonicOS: cloud, default voice
+robot.speak("നമസ്കാരം", "Puck", language="ml-IN", engine="cloud")
+robot.speak("வணக்கம்", language="ta-IN")                   # BonicOS: tablet voice, if Tamil is installed
+robot.speak("Welcome to the lab!", agent_id="YOUR_AGENT_ID")
+```
 
 ---
 
