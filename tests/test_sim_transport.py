@@ -1009,7 +1009,8 @@ def test_speak_calls_provider_with_every_option(sim: SimTransport) -> None:
     ({"text": "hi", "voice": "Zephyr"}, "needs engine='cloud'"),
     ({"text": "hi", "voice": "en-US-Chirp3-HD-Zephyr", "engine": "cloud"},
      "a name such as 'Zephyr'"),
-    ({"text": "hi", "agent_id": "  "}, "agent_id must be a non-empty string"),
+    ({"text": "hi", "use_agent": "yes"}, "use_agent must be True or False"),
+    ({"text": "hi", "use_agent": 1}, "use_agent must be True or False"),
 ])
 def test_speak_refuses_what_a_robot_refuses(sim: SimTransport, fields, fragment) -> None:
     calls = []
@@ -1036,7 +1037,7 @@ def test_speak_provider_drops_options_for_an_agent(sim: SimTransport) -> None:
     sim.set_speech_provider(lambda *args: calls.append(args))
 
     ack = sim.wait_for_ack(sim.send({
-        "type": protocol.CMD_SPEAK, "text": "hi", "agent_id": "agent-1",
+        "type": protocol.CMD_SPEAK, "text": "hi", "use_agent": True,
         "voice": "Zephyr", "language": "hi-IN", "rate": 1.5, "engine": "cloud",
     }))
 

@@ -164,13 +164,13 @@ def test_speak_forwards_every_option(robot, transport) -> None:
     sent = transport.sent[-1]
     assert (sent["text"], sent["voice"], sent["language"], sent["rate"],
             sent["engine"]) == ("namaste", "Zephyr", "hi-IN", 0.9, "cloud")
-    assert "agent_id" not in sent
+    assert "use_agent" not in sent
 
 
-def test_speak_forwards_agent_id(robot, transport) -> None:
+def test_speak_forwards_use_agent(robot, transport) -> None:
     transport.script_ack(protocol.CMD_SPEAK, {"ok": True})
-    assert BonicBot.speak(robot, "welcome", agent_id="agent-42") is True
-    assert transport.sent[-1]["agent_id"] == "agent-42"
+    assert BonicBot.speak(robot, "welcome", use_agent=True) is True
+    assert transport.sent[-1]["use_agent"] is True
 
 
 def test_speak_raises_the_robots_reason(robot, transport) -> None:

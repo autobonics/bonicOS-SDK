@@ -589,10 +589,10 @@ class BonicBot:
         language: Optional[str] = None,
         rate: Optional[float] = None,
         engine: Optional[str] = None,
-        agent_id: Optional[str] = None,
+        use_agent: bool = False,
     ) -> bool:
         return self.system.speak(text, voice, language=language, rate=rate,
-                                 engine=engine, agent_id=agent_id)
+                                 engine=engine, use_agent=use_agent)
 
     # --- sensors & telemetry (API.md §8) ------------------------------------
 

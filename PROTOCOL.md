@@ -454,7 +454,7 @@ choice.
 
 | type | fields | reply |
 |---|---|---|
-| `speak` | `text`, `language?`, `voice?`, `rate?`, `engine?`, `agent_id?` | `ack {ok}` |
+| `speak` | `text`, `language?`, `voice?`, `rate?`, `engine?`, `use_agent?` | `ack {ok}` |
 
 - `text` — non-empty, at most 1000 characters.
 - `language` — a language code (`en-US`, `hi-IN`). Absent: English (`en-US`).
@@ -464,21 +464,24 @@ choice.
   (`SPEAK_ENGINES`).
 - `voice` — a cloud voice name such as `"Zephyr"`, never a full provider voice
   id; it speaks in `language`. Refused unless `engine` is `"cloud"`.
-- `agent_id` — speak in that BonicAI agent's configured voice; `language`,
+- `use_agent` — `true` speaks in the configured voice of the agent BonicOS is
+  talking as now (a running session's agent, else the robot's current agent,
+  organisation or its own); `language`,
   `voice`, `rate` and `engine` are then ignored. Robots with BonicOS only.
+  Default `false`; anything but a boolean is refused.
 
 API.md §7 lists every language code and voice name.
 
 The ack comes once the speech is queued, not once it has been heard. Speech is
 queued in order. Every refusal is `ok: false` with an `error` saying why — an
 invalid field, a language or voice the robot cannot speak, `cloud` or
-`agent_id` without BonicOS, BonicOS not connected, no credits, or too much
-speech already waiting.
+`use_agent` without BonicOS, BonicOS not connected or its agent not yet loaded,
+no credits, or too much speech already waiting.
 
 | Robot | Spoken by |
 |---|---|
-| With BonicOS | the BonicOS app — its on-device voice (`edge`), a cloud voice (`cloud`) or an agent's voice (`agent_id`) |
-| Without BonicOS | the robot's own on-device voice; English; no `cloud`, no `agent_id` |
+| With BonicOS | the BonicOS app — its on-device voice (`edge`), a cloud voice (`cloud`) or the current agent's voice (`use_agent`) |
+| Without BonicOS (A-series pro) | the robot's own on-device voice, through its Bluetooth amplifier; English; no `cloud`, no `use_agent`. Refused while the amplifier is not connected |
 
 ### 5.7 System & session
 

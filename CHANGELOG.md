@@ -4,6 +4,14 @@ All notable changes to `bonicos`. This project follows
 [Semantic Versioning](https://semver.org/); while on `0.x`, breaking changes
 bump the minor version.
 
+## [0.14.0] — 2026-09-27
+
+### Changed — breaking
+
+- **`speak(use_agent=True)` replaces `speak(agent_id=...)`.** It speaks in
+  the voice of the agent the robot is running now — organisation or its own —
+  so a program no longer needs an agent id. `agent_id` is gone.
+
 ## [0.13.0] — 2026-09-26
 
 ### Added

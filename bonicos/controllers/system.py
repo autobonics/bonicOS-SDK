@@ -166,7 +166,7 @@ class SystemController(ControllerBase):
         language: Optional[str] = None,
         rate: Optional[float] = None,
         engine: Optional[str] = None,
-        agent_id: Optional[str] = None,
+        use_agent: bool = False,
     ) -> bool:
         """Say ``text`` through the robot's speaker.
 
@@ -178,9 +178,10 @@ class SystemController(ControllerBase):
         BonicOS only). ``voice`` names a cloud voice, such as ``"Zephyr"``, so
         it needs ``engine="cloud"``; it speaks in ``language``.
 
-        ``agent_id`` speaks in that BonicAI agent's configured voice instead,
-        ignoring ``voice``, ``language``, ``rate`` and ``engine`` (robots with
-        BonicOS only).
+        ``use_agent=True`` speaks in the voice of the agent the robot is
+        running right now instead — its configured voice, language and speed
+        — ignoring ``voice``, ``language``, ``rate`` and ``engine`` (robots
+        with BonicOS only).
 
         Returns once the robot has queued the speech, not once it has been
         heard. Raises :class:`~bonicos.CommandError` with the robot's reason
@@ -197,7 +198,7 @@ class SystemController(ControllerBase):
             payload["rate"] = rate
         if engine is not None:
             payload["engine"] = engine
-        if agent_id is not None:
-            payload["agent_id"] = agent_id
+        if use_agent:
+            payload["use_agent"] = use_agent
         self._command(payload)
         return True

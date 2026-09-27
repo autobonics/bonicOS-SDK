@@ -421,7 +421,7 @@ Grouped access: `robot.head.*`.
 
 | Method | Description |
 |---|---|
-| `robot.speak(text, voice=None, *, language=None, rate=None, engine=None, agent_id=None) -> bool` | Say `text` (at most 1000 characters). Returns once the speech is queued, not once it has been heard. |
+| `robot.speak(text, voice=None, *, language=None, rate=None, engine=None, use_agent=False) -> bool` | Say `text` (at most 1000 characters). Returns once the speech is queued, not once it has been heard. |
 
 Calls are spoken in order. If the robot can't say something it raises
 `CommandError` with the reason, so a program never goes quietly silent.
@@ -430,13 +430,20 @@ Calls are spoken in order. If the robot can't say something it raises
 
 The robot decides, from how it is fitted — you never pick:
 
-| Robot | Who speaks | `engine="edge"` | `engine="cloud"` | `agent_id` |
+| Robot | Who speaks | `engine="edge"` | `engine="cloud"` | `use_agent=True` |
 |---|---|---|---|---|
 | **With BonicOS** (the BonicOS app on the robot's tablet or phone) | the BonicOS app | ✅ the tablet's on-device voice | ✅ | ✅ |
-| **Without BonicOS** (an A-series pro without the app) | the robot itself, through its own speaker | ✅ English only | ❌ | ❌ |
+| **Without BonicOS** (an A-series pro without the app) | the robot itself, through its Bluetooth amplifier | ✅ English only | ❌ | ❌ |
 
-`engine="cloud"` and `agent_id` on a robot without BonicOS raise
+`engine="cloud"` and `use_agent=True` on a robot without BonicOS raise
 `CommandError`: *"cloud voices need BonicOS, which this robot doesn't have"*.
+
+A robot without BonicOS speaks only through its Bluetooth amplifier, which it
+connects by itself when it starts and reconnects whenever it is switched back
+on. While the amplifier is off or not yet connected, `speak` raises
+`CommandError` saying so rather than speaking to nobody. The amplifier is part
+of setting up the robot, not of a program: connect or change it from the
+controller app.
 
 ### Options
 
@@ -446,7 +453,16 @@ The robot decides, from how it is fitted — you never pick:
 | `rate` | `0.5` to `2.0` | `1.0` | Speaking speed; higher is faster. Works with every engine. |
 | `engine` | `"edge"` or `"cloud"` | `"edge"` | `edge` is free and works offline. `cloud` is higher quality, speaks every language below, and uses the robot's credits. |
 | `voice` | a cloud voice name from the table below, e.g. `"Zephyr"` | `"Zephyr"` | Cloud only: needs `engine="cloud"`. Just the name — **not** `"en-US-Chirp3-HD-Zephyr"`; the language comes from `language`. On-device voices can't be chosen. |
-| `agent_id` | the id of a BonicAI agent | — | Speaks in that agent's configured voice, language and speed. `voice`, `language`, `rate` and `engine` are then ignored. BonicOS only. |
+| `use_agent` | `True` or `False` | `False` | `True` speaks in the voice of the robot's current agent — its configured voice, language and speed. `voice`, `language`, `rate` and `engine` are then ignored. BonicOS only. |
+
+**The current agent** is the one the robot is running in BonicOS right now —
+during a session, that session's agent; otherwise the agent chosen for the
+robot in BonicAI, whether it is the robot's own or one of your organisation's,
+or else the robot's default agent. Change it in BonicAI and the next
+`speak(..., use_agent=True)` uses the new voice. An agent with a cloud voice
+uses the robot's credits, like `engine="cloud"`. While BonicOS is still loading
+an agent — just after it starts, or right after the agent is changed — `speak`
+raises `CommandError`; try again a moment later.
 
 ### Languages
 
@@ -512,7 +528,7 @@ robot.speak("Slowly now.", rate=0.8)                     # any robot
 robot.speak("नमस्ते", language="hi-IN", engine="cloud")   # BonicOS: cloud, default voice
 robot.speak("നമസ്കാരം", "Puck", language="ml-IN", engine="cloud")
 robot.speak("வணக்கம்", language="ta-IN")                   # BonicOS: tablet voice, if Tamil is installed
-robot.speak("Welcome to the lab!", agent_id="YOUR_AGENT_ID")
+robot.speak("Welcome to the lab!", use_agent=True)         # BonicOS: the current agent's voice
 ```
 
 ---

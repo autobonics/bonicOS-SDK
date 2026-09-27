@@ -203,11 +203,11 @@ def _speak_refusal(msg: dict) -> Optional[str]:
     text = msg.get("text")
     if not isinstance(text, str) or not text.strip():
         return "nothing to say — text is empty"
-    agent_id = msg.get("agent_id")
-    if agent_id is not None:
+    use_agent = msg.get("use_agent", False)
+    if not isinstance(use_agent, bool):
+        return "use_agent must be True or False"
+    if use_agent:
         # The agent's own settings replace every other option, unchecked.
-        if not isinstance(agent_id, str) or not agent_id.strip():
-            return "agent_id must be a non-empty string"
         return None
     engine = msg.get("engine") or protocol.SPEAK_ENGINE_EDGE
     if engine not in protocol.SPEAK_ENGINES:
@@ -1615,7 +1615,7 @@ class SimTransport(MockTransport):
                 return {"ok": False, "error": error}
             if self._speech_provider is None:
                 return {"ok": True}
-            if msg.get("agent_id"):
+            if msg.get("use_agent"):
                 # The agent's own voice settings replace the caller's, as on
                 # a robot; the sim has no agents, so it speaks plainly.
                 options: tuple = (None, None, None, protocol.SPEAK_ENGINE_EDGE)
