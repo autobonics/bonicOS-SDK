@@ -4,6 +4,16 @@ All notable changes to `bonicos`. This project follows
 [Semantic Versioning](https://semver.org/); while on `0.x`, breaking changes
 bump the minor version.
 
+## [0.15.0] — 2026-09-27
+
+### Added
+
+- **`run_agent()` and `stop_agent()`** start and end the robot's current
+  agent — the one `speak(use_agent=True)` speaks as — on the robot's display
+  (BonicOS only). `run_agent()` raises `CommandError` with the reason when the
+  agent can't start. `protocol.CMD_RUN_AGENT` and `protocol.CMD_STOP_AGENT`
+  name the commands. The simulator refuses `run_agent()`: it has no agent.
+
 ## [0.14.0] — 2026-09-27
 
 ### Changed — breaking
