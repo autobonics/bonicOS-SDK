@@ -415,13 +415,15 @@ Grouped access: `robot.head.*`.
 
 ---
 
-## 7. Speech
+## 7. Speech & agent
 
 **On Lite:** ✅ available — BonicOS is always fitted.
 
 | Method | Description |
 |---|---|
 | `robot.speak(text, voice=None, *, language=None, rate=None, engine=None, use_agent=False) -> bool` | Say `text` (at most 1000 characters). Returns once the speech is queued, not once it has been heard. |
+| `robot.run_agent() -> bool` | Start the robot's current agent so visitors can talk to it. BonicOS only — see [The agent](#the-agent). |
+| `robot.stop_agent() -> bool` | End the agent's conversation. BonicOS only. |
 
 Calls are spoken in order. If the robot can't say something it raises
 `CommandError` with the reason, so a program never goes quietly silent.
@@ -529,6 +531,35 @@ robot.speak("नमस्ते", language="hi-IN", engine="cloud")   # BonicOS:
 robot.speak("നമസ്കാരം", "Puck", language="ml-IN", engine="cloud")
 robot.speak("வணக்கம்", language="ta-IN")                   # BonicOS: tablet voice, if Tamil is installed
 robot.speak("Welcome to the lab!", use_agent=True)         # BonicOS: the current agent's voice
+```
+
+### The agent
+
+On a robot with BonicOS, `run_agent()` starts the robot's current agent — the
+same one `speak(..., use_agent=True)` speaks as. Its conversation screen opens
+on the robot's display, on top of whatever it was showing, and visitors can
+talk to it. `stop_agent()` ends the conversation as if the visitor had left
+it, and the display goes back to what it showed before.
+
+Both return once the robot has accepted them. `run_agent()` returns `True` as
+well when the agent is already running, and `stop_agent()` when none is. If the
+agent can't start, `run_agent()` raises `CommandError` with the reason:
+
+- the robot has no agent loaded yet — just after BonicOS starts, or right
+  after the agent is changed; try again a moment later;
+- a marketing, training, teaching or attendance session, or a call, is using
+  the display;
+- the agent asks visitors to sign in, which needs someone at the robot;
+- the agent uses cloud AI and the robot is out of credits.
+
+On a robot without BonicOS, and in the simulator, `run_agent()` raises
+`CommandError`; `stop_agent()` does too on a robot without BonicOS.
+
+```python
+robot.speak("Let me hand you over to my assistant.")
+robot.run_agent()
+time.sleep(120)          # visitors talk to the agent for two minutes
+robot.stop_agent()
 ```
 
 ---

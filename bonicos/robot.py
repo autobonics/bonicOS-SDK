@@ -579,7 +579,7 @@ class BonicBot:
     def set_display_brightness(self, value: float) -> bool:
         return self.head.set_display_brightness(value)
 
-    # --- speech (API.md §7) --------------------------------------------------
+    # --- speech & agent (API.md §7) -----------------------------------------
 
     def speak(
         self,
@@ -593,6 +593,12 @@ class BonicBot:
     ) -> bool:
         return self.system.speak(text, voice, language=language, rate=rate,
                                  engine=engine, use_agent=use_agent)
+
+    def run_agent(self) -> bool:
+        return self.system.run_agent()
+
+    def stop_agent(self) -> bool:
+        return self.system.stop_agent()
 
     # --- sensors & telemetry (API.md §8) ------------------------------------
 

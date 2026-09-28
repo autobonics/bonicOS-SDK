@@ -1634,6 +1634,15 @@ class SimTransport(MockTransport):
                     "error": "the simulator could not speak that — this "
                              "browser's speech engine refused it"}
 
+        if cmd_type == protocol.CMD_RUN_AGENT:
+            # No agent can run here, and acking one that isn't would let a
+            # program believe a visitor can talk to it.
+            return {"ok": False,
+                    "error": "the simulator has no agent to run — run_agent "
+                             "needs a robot with BonicOS"}
+        if cmd_type == protocol.CMD_STOP_AGENT:
+            return {"ok": True}  # none is ever running
+
         if cmd_type == protocol.CMD_SHUTDOWN:
             # There is no machine to halt. Refusing is the honest answer, and
             # the alternative — acking a poweroff that did not happen — is how

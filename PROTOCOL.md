@@ -447,7 +447,7 @@ section always anticipated. It carries radians like every other joint command
 does not fit in `unsupported`, the same way `servo_command` does. A2 fits neck
 yaw but no neck pitch, so `tilt` comes back unsupported there.
 
-### 5.6 Speech — `speak`
+### 5.6 Speech & agent — `speak`, `run_agent`, `stop_agent`
 
 One command; **where** it is spoken is the robot's fitment, never the caller's
 choice.
@@ -482,6 +482,24 @@ no credits, or too much speech already waiting.
 |---|---|
 | With BonicOS | the BonicOS app — its on-device voice (`edge`), a cloud voice (`cloud`) or the current agent's voice (`use_agent`) |
 | Without BonicOS (A-series pro) | the robot's own on-device voice, through its Bluetooth amplifier; English; no `cloud`, no `use_agent`. Refused while the amplifier is not connected |
+
+**The agent** — robots with BonicOS only; refused on any other.
+
+| type | fields | reply |
+|---|---|---|
+| `run_agent` | — | `ack {ok}` |
+| `stop_agent` | — | `ack {ok}` |
+
+`run_agent` opens the conversation with the robot's current agent (the one
+`use_agent` speaks as) on the robot's display, on top of whatever it shows.
+Acked once the screen is opening, and when the agent is already running.
+Refused, with the reason, when no agent is loaded, another session or a call
+is using the display, the agent asks visitors to sign in, or the robot is out
+of credits for it.
+
+`stop_agent` ends the conversation — however it was started — as if the visitor
+had left it, and the display returns to what it showed before. Acked as well
+when no agent is running.
 
 ### 5.7 System & session
 

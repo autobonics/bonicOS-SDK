@@ -1,4 +1,4 @@
-"""System (API.md §10): health, wifi, updates, speech."""
+"""System (API.md §10): health, wifi, updates, speech and the agent."""
 
 from __future__ import annotations
 
@@ -201,4 +201,27 @@ class SystemController(ControllerBase):
         if use_agent:
             payload["use_agent"] = use_agent
         self._command(payload)
+        return True
+
+    def run_agent(self) -> bool:
+        """Start the robot's current agent: its conversation screen opens on
+        the robot's display, on top of whatever it shows, and visitors can
+        talk to it (robots with BonicOS only).
+
+        The current agent is the one ``speak(use_agent=True)`` speaks as.
+        Returns once the screen is opening; ``True`` as well when the agent
+        is already running. Raises :class:`~bonicos.CommandError` with the
+        robot's reason if it can't start — no agent loaded yet, the robot out
+        of credits, an agent that asks visitors to sign in, or another session
+        or a call using the display.
+        """
+        self._command({"type": protocol.CMD_RUN_AGENT})
+        return True
+
+    def stop_agent(self) -> bool:
+        """End the agent's conversation, as if the visitor had left it; the
+        display goes back to what it showed before :meth:`run_agent`
+        (robots with BonicOS only). ``True`` as well when no agent is running.
+        """
+        self._command({"type": protocol.CMD_STOP_AGENT})
         return True

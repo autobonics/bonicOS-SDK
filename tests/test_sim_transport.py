@@ -976,6 +976,16 @@ def test_shutdown_refuses_instead_of_acking_a_poweroff_that_cannot_happen(
     assert ack["error"]
 
 
+def test_run_agent_refuses_since_the_sim_has_no_agent(sim: SimTransport) -> None:
+    ack = sim.wait_for_ack(sim.send({"type": protocol.CMD_RUN_AGENT}))
+    assert ack["ok"] is False and "BonicOS" in ack["error"]
+
+
+def test_stop_agent_acks_since_none_is_running(sim: SimTransport) -> None:
+    ack = sim.wait_for_ack(sim.send({"type": protocol.CMD_STOP_AGENT}))
+    assert ack.get("ok") is True
+
+
 def test_speak_acks_true_with_no_provider(sim: SimTransport) -> None:
     # Same silent-success stub `speak()` has always had — installing a
     # provider is additive, never a new way to fail.

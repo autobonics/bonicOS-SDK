@@ -70,7 +70,7 @@ hardware required.
 | **Arms & grippers** | `move_left_arm`, `move_right_arm`, `set_servos`, `set_gripper`, `set_neck`, `get_servo_angles` |
 | **Sensors** | `get_position`, `get_battery`, `get_imu`, `get_servo_angles`, `wait_for_update` |
 | **Camera** | `get_camera_frame()` → BGR numpy arrays (needs `pip install bonicos[camera]`) |
-| **System** | `speak`, `health`, session status and recovery |
+| **System** | `speak`, `run_agent` / `stop_agent`, `health`, session status and recovery |
 
 Full reference with every signature: **[API.md](./API.md)**.
 

@@ -107,7 +107,7 @@ CMD_DISPLAY_ANIMATION = "display_animation"
 CMD_DISPLAY_BRIGHTNESS = "display_brightness"
 CMD_DISPLAY_CLEAR = "display_clear"
 
-#: §5.6 Speech.
+#: §5.6 Speech & agent.
 CMD_SPEAK = "speak"
 #: ``speak`` engines: an on-device voice (the default) or a cloud voice.
 SPEAK_ENGINE_EDGE = "edge"
@@ -115,6 +115,11 @@ SPEAK_ENGINE_CLOUD = "cloud"
 SPEAK_ENGINES = (SPEAK_ENGINE_EDGE, SPEAK_ENGINE_CLOUD)
 #: ``speak`` rate bounds, inclusive. 1.0 is normal speed; higher is faster.
 SPEAK_RATE_RANGE = (0.5, 2.0)
+
+#: The robot's agent (BonicOS only): open / end the conversation with it on
+#: the robot's display.
+CMD_RUN_AGENT = "run_agent"
+CMD_STOP_AGENT = "stop_agent"
 
 #: §5.7 System & session.
 CMD_HEALTH = "health"

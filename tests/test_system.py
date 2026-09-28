@@ -179,3 +179,20 @@ def test_speak_raises_the_robots_reason(robot, transport) -> None:
                               "doesn't have"})
     with pytest.raises(CommandError, match="cloud voices need BonicOS"):
         robot.system.speak("hi", engine="cloud")
+
+
+@pytest.mark.parametrize("method, command", [("run_agent", protocol.CMD_RUN_AGENT),
+                                             ("stop_agent", protocol.CMD_STOP_AGENT)])
+def test_agent_commands_send_only_their_type(robot, transport, method, command) -> None:
+    transport.script_ack(command, {"ok": True})
+    # Through the BonicBot facade, so its forwarding is covered too.
+    assert getattr(BonicBot, method)(robot) is True
+    assert transport.sent[-1] == {"type": command, "id": transport.sent[-1]["id"]}
+
+
+def test_run_agent_raises_the_robots_reason(robot, transport) -> None:
+    transport.script_ack(protocol.CMD_RUN_AGENT, {
+        "ok": False, "error": "the robot is on a call — the agent can start "
+                              "once it ends"})
+    with pytest.raises(CommandError, match="the robot is on a call"):
+        robot.system.run_agent()
