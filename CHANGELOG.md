@@ -4,6 +4,46 @@ All notable changes to `bonicos`. This project follows
 [Semantic Versioning](https://semver.org/); while on `0.x`, breaking changes
 bump the minor version.
 
+## [1.0.0] — 2026-09-29
+
+### Added
+
+- **`robot.capabilities()`** returns what the robot unit reports it was built
+  with: `servos` (the servo names it has, or `None` if its build was never
+  recorded), the `gripper`, `docking` and `bonicos` addons, and `zones`.
+  Information only — the SDK never checks it before sending a command. The
+  simulator reports the same shape.
+- **`HeadMode.LOVE`** — a seventh expression.
+- **`set_display_pixel(x, y, r, g, b)`** lights one LED of the A-series
+  matrix, and **`set_display_frame(pixels)`** draws a whole 12 × 5 picture —
+  5 rows of 12 `(r, g, b)`, or all 60 in one flat list.
+  `protocol.DISPLAY_WIDTH` / `DISPLAY_HEIGHT` give the drawing area. Both
+  take numpy arrays and numbers, and raise `CommandError` for a position or
+  shape the robot would refuse, before sending.
+- **`set_display_text(text, mode="scroll")`** takes `mode="static"` to hold
+  the text still.
+- `DisplayAnimation.SURPRISED` and `DisplayAnimation.CONFUSED`.
+
+### Changed
+
+- **Every expression is a real face**, on the A-series LED matrix and the new
+  S-series display alike; `surprised` and `confused` are no longer stand-ins.
+  The S display shows preset expressions only: `display_*` calls and
+  `set_expression("none")` raise `CommandError` there.
+- `set_expression()` sends the `emotion` command
+  (`protocol.CMD_EMOTION`, replacing `CMD_HEAD_MODE`). An unknown name raises
+  `CommandError` with the known names in `result["known"]`.
+- **Naming a servo the robot unit does not have fails at once.** A robot that
+  knows its build leaves such servos out of `joint_states`, so
+  `get_servo_angles()` lists only the servos it has, and `set_servos` /
+  `set_grippers` raise `CommandError` ("this robot has no leftGripper, …")
+  instead of timing out.
+
+### Removed
+
+- The `UserWarning` for a substituted expression: every expression is a real
+  face.
+
 ## [0.15.0] — 2026-09-27
 
 ### Added
