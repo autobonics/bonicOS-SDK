@@ -558,8 +558,14 @@ class BonicBot:
     ) -> bool:
         return self.head.look(pan, tilt, speed, duration=duration)
 
-    def set_display_text(self, text: str) -> bool:
-        return self.head.set_display_text(text)
+    def set_display_text(self, text: str, mode: str = "scroll") -> bool:
+        return self.head.set_display_text(text, mode)
+
+    def set_display_pixel(self, x: int, y: int, r: int, g: int, b: int) -> bool:
+        return self.head.set_display_pixel(x, y, r, g, b)
+
+    def set_display_frame(self, pixels: Sequence[Sequence[Any]]) -> bool:
+        return self.head.set_display_frame(pixels)
 
     def set_display_color(self, r: int, g: int, b: int) -> bool:
         return self.head.set_display_color(r, g, b)

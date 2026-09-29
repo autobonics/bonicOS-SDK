@@ -98,14 +98,22 @@ CMD_UNDOCK = "undock"
 CMD_SERVO_COMMAND = "servo_command"
 CMD_SERVO_SINGLE = "servo_single"
 
-#: §5.5 Head expression & LED matrix — all stub in v1.
-CMD_HEAD_MODE = "head_mode"
+#: §5.5 Head expression & face display.
+CMD_EMOTION = "emotion"
 CMD_HEAD_LOOK = "head_look"
 CMD_DISPLAY_TEXT = "display_text"
 CMD_DISPLAY_COLOR = "display_color"
 CMD_DISPLAY_ANIMATION = "display_animation"
 CMD_DISPLAY_BRIGHTNESS = "display_brightness"
 CMD_DISPLAY_CLEAR = "display_clear"
+CMD_DISPLAY_FRAME = "display_frame"
+CMD_DISPLAY_PIXEL = "display_pixel"
+#: ``display_text`` modes: scroll (the default) or hold still.
+DISPLAY_TEXT_MODES = ("scroll", "static")
+#: The A-series matrix drawing area that ``display_pixel`` and
+#: ``display_frame`` address: x 0-11, y 0-4, from the top left.
+DISPLAY_WIDTH = 12
+DISPLAY_HEIGHT = 5
 
 #: §5.6 Speech & agent.
 CMD_SPEAK = "speak"

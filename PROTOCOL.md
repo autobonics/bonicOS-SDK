@@ -441,23 +441,27 @@ The server packs the `CMD_MATRIX_ACTION` body and publishes it on the series'
 face-display topic; the ros2_control plugin forwards those bytes to the ESP
 unchanged. A series with no such topic answers `ok:false` with
 `no face display on series <X>` — never a silent success. The S-series display
-shows preset expressions only: every `display_*` command, and `head_mode none`,
+shows preset expressions only: every `display_*` command, and `emotion none`,
 answers `ok:false` there.
 
 | type | status | fields |
 |---|---|---|
-| `head_mode` | ✅ | `mode` (`normal`/`happy`/`sad`/`angry`/`surprised`/`confused`/`love`, or `none` to blank an A-series matrix) |
+| `emotion` | ✅ | `emotion` (`normal`/`happy`/`sad`/`angry`/`surprised`/`confused`/`love`, or `none` to blank an A-series matrix) |
 | `head_look` | ✅ | `pan?`, `tilt?` (**radians**), `duration?`; `speed?` accepted and ignored |
-| `display_text` | ✅ A | `text` (ASCII) |
+| `display_text` | ✅ A | `text` (ASCII), `mode?` (`scroll` default, or `static`) |
 | `display_color` | ✅ A | `r`, `g`, `b` (0-255) |
 | `display_animation` | ✅ A | `mode` — a name, `"play"`/`"pause"`, or a raw firmware index |
 | `display_brightness` | ✅ A | `value` (0-255) |
 | `display_clear` | ✅ A | — |
+| `display_pixel` | ✅ A | `x` (0-11), `y` (0-4), `r`, `g`, `b` (0-255) |
+| `display_frame` | ✅ A | `pixels` — exactly 60 `[r, g, b]`, the 12 × 5 drawing area row by row from the top left |
 
-Every `head_mode` expression is a real face on both heads; the ack carries
-`mode` and `emotion_id`. An ack that carries `substituted` means the robot
-showed a stand-in instead of the face asked for, and clients must surface it
-rather than treat the call as an exact success.
+Every `emotion` is a real face on both heads; the ack carries `emotion` and
+`emotion_id`. An unknown name answers `ok:false` with `known`, the names the
+robot accepts; so does an unknown `display_text` mode. `display_pixel` and
+`display_frame` stop any running animation; `display_frame` blanks the panel
+before drawing. `x`/`y` are whole numbers (`6.0` counts as `6`); a position
+outside the drawing area or a frame of any other size answers `ok:false`.
 
 `head_look` goes through `servo_command`'s head controller group, as this
 section always anticipated. It carries radians like every other joint command

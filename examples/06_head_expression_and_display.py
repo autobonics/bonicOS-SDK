@@ -41,6 +41,7 @@ def main() -> None:
             # Text and colour. ASCII only — the panel's font has nothing else.
             robot.set_display_color(r=0, g=200, b=255)
             robot.set_display_text("Hello from bonicos!")
+            robot.set_display_text("Hi", mode="static")  # ~3 characters fit
 
             # Brightness is a raw 0-255 byte, NOT a 0..1 fraction: 0.8 is off.
             robot.set_display_brightness(200)
@@ -50,6 +51,14 @@ def main() -> None:
             robot.set_display_animation(DisplayAnimation.RAINBOW_WAVE)
             robot.pause_display()
             robot.play_display()
+
+            # Draw your own picture: 5 rows of 12 (r, g, b), top row first.
+            off, on = (0, 0, 0), (255, 80, 0)
+            robot.set_display_frame(
+                [[on if (x + y) % 2 else off for x in range(12)] for y in range(5)]
+            )
+            robot.clear_display()
+            robot.set_display_pixel(0, 0, 0, 255, 0)  # top-left LED, green
 
             robot.clear_display()
             print("Display sequence sent.")

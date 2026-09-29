@@ -390,10 +390,12 @@ Live on both Lite and Pro. On Pro the path is robot_app -> `/face/display_action
 |---|---|
 | `robot.set_expression(mode)` | `"normal"/"happy"/"sad"/"angry"/"surprised"/"confused"/"love"` (`HeadMode` enum). |
 | `robot.look(pan=None, tilt=None, speed=None, *, duration=1.0)` | Neck pan/tilt in **degrees**, via the head controller group. |
-| `robot.set_display_text(text)` | LED-matrix text (ASCII; the panel font has nothing else). A series. |
+| `robot.set_display_text(text, mode="scroll")` | LED-matrix text (ASCII; the panel font has nothing else). `mode` is `"scroll"` or `"static"`; about three characters fit at once. A series. |
 | `robot.set_display_color(r, g, b)` | Matrix color, 0-255 per channel. A series. |
 | `robot.set_display_animation(mode)` / `play_display()` / `pause_display()` / `clear_display()` | Matrix animation control. A `DisplayAnimation` member, its bare name, or a raw firmware index. A series. |
 | `robot.set_display_brightness(value)` | Matrix brightness, **0-255** — not a 0..1 fraction. A series. |
+| `robot.set_display_pixel(x, y, r, g, b)` | Light one LED: `x` 0-11, `y` 0-4 from the top left. Stops any running animation; the rest of the panel stays. A series. |
+| `robot.set_display_frame(pixels)` | Draw a whole 12 × 5 picture: 5 rows of 12 `(r, g, b)`, top row first, or all 60 in one flat list (a numpy array works too). `(0, 0, 0)` is off. The panel is blanked first. A series. |
 
 **Every expression is a real face** — all seven `HeadMode` members, on the
 A-series matrix and the S-series display alike.
@@ -401,14 +403,17 @@ A-series matrix and the S-series display alike.
 **Animation names come from `DisplayAnimation`** — `static_text`,
 `scrolling_text`, `rainbow_wave`, `fire`, `plasma`, `matrix_rain`,
 `custom_pattern`, `rose_color_wave`, `custom_animation`, `sad`, `love`,
-`happy`, `angry`, `manual_paint`, `battery`. A bare string works, and a raw
+`happy`, `angry`, `manual_paint`, `battery`, `surprised`, `confused`. A bare string works, and a raw
 int is passed through as a firmware animation index for anything the enum
 does not name yet. An unknown name is refused, with the list the robot knows.
 
 **A refused display command raises `CommandError`** with the robot's reason,
 e.g. "no face display on series m", "this robot's face shows preset
 expressions only" (a `display_*` call on S) or "the base stack is down". For an
-unknown animation name, `err.result["known"]` lists the names the robot knows.
+unknown expression, text mode or animation name, `err.result["known"]` lists
+the names the robot knows. A pixel outside the 12 × 5 drawing area, a frame of
+any other shape, and an unknown text mode raise before anything is sent, so a
+program behaves the same in the simulator.
 
 **`look` raises when nothing could move.** `tilt` is neck pitch, which an A2
 does not have: `look(tilt=…)` alone raises `CommandError`, and `pan` + `tilt`

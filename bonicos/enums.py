@@ -72,8 +72,9 @@ class DisplayAnimation(str, Enum):
     integer index for anything this table has not named yet, so a firmware
     animation added later needs no SDK release to reach.
 
-    ``SAD``/``LOVE``/``HAPPY``/``ANGRY`` are the same faces
-    :class:`HeadMode` reaches; ``set_expression`` is the friendlier way in.
+    ``SAD``/``LOVE``/``HAPPY``/``ANGRY``/``SURPRISED``/``CONFUSED`` are the
+    same faces :class:`HeadMode` reaches; ``set_expression`` is the friendlier
+    way in.
     ``MANUAL_PAINT`` is the blank canvas ``clear_display()`` leaves behind.
     """
 
@@ -92,3 +93,5 @@ class DisplayAnimation(str, Enum):
     ANGRY = "angry"
     MANUAL_PAINT = "manual_paint"
     BATTERY = "battery"
+    SURPRISED = "surprised"
+    CONFUSED = "confused"
