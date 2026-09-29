@@ -12,6 +12,26 @@ def test_health(robot, transport) -> None:
     assert result["cpu"] == 12.0
 
 
+def test_capabilities_is_the_health_block(robot, transport) -> None:
+    caps = {"docking": False, "bonicos": True, "gripper": True, "zones": False,
+            "servos": ["leftElbow", "leftGripper"]}
+    transport.script_ack(protocol.CMD_HEALTH, {"cpu_percent": 1.0, "capabilities": caps})
+    assert robot.system.capabilities() == caps
+
+
+def test_capabilities_empty_when_the_robot_does_not_report_them(robot, transport) -> None:
+    transport.script_ack(protocol.CMD_HEALTH, {"cpu_percent": 1.0})
+    assert robot.system.capabilities() == {}
+
+
+def test_capabilities_never_block_a_command(robot, transport) -> None:
+    # A robot reporting no gripper still gets the command; refusing is its job.
+    transport.script_ack(protocol.CMD_HEALTH, {"capabilities": {"gripper": False, "servos": []}})
+    robot.system.capabilities()
+    robot.arm.set_servos({"leftGripper": 10.0}, wait=False)
+    assert transport.sent[-1]["type"] == protocol.CMD_SERVO_COMMAND
+
+
 def test_restart_base_session(robot, transport) -> None:
     transport.script_ack(
         protocol.CMD_RESTART_BASE_SESSION,

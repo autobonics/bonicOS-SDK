@@ -1,8 +1,10 @@
-"""Head expression & LED matrix (API.md §6).
+"""Head expression & face display (API.md §6).
 
-**Live on A series since robot_app gained the face-matrix path**; still stubs
-on any robot whose series has no LED matrix, which answers with an error
-rather than a silent success (PROTOCOL.md §5.5).
+Expressions are live on every robot with a face display: the A-series LED
+matrix and the S-series display. The ``display_*`` commands (text, colour,
+animation, brightness) need the A-series matrix; the S display shows preset
+expressions only and refuses them, as does a robot with no face display —
+with an error, never a silent success (PROTOCOL.md §5.5).
 
 Angles are **degrees** at this API boundary, the same as `arm` (adopted
 default #2), converted to radians here before the wire send — `head_look`
@@ -26,14 +28,13 @@ from ._base import ControllerBase
 
 class HeadController(ControllerBase):
     def set_expression(self, mode: Union[HeadMode, str]) -> bool:
-        """Set the face.
+        """Set the face — one of the :class:`HeadMode` expressions, each a
+        real face on the A-series matrix and the S-series display.
 
-        Two of the six expressions have no face in the robot's firmware and
-        arrive as documented approximations — `surprised` is a heart,
-        `confused` a colour effect. The server says so in the ack, and this
-        raises a `UserWarning` rather than letting the substitution pass
-        unnoticed: a lesson built around a "surprised" face should not
-        discover on the day that it is a heart.
+        ``"none"`` blanks the A-series matrix; the S display always shows an
+        expression and refuses it. If a robot reports that it showed a
+        stand-in for the face asked for (``substituted`` in its reply), this
+        raises a ``UserWarning`` saying which, rather than passing silently.
         """
         value = mode.value if isinstance(mode, HeadMode) else mode
         result = self._command({"type": protocol.CMD_HEAD_MODE, "mode": value})
@@ -105,8 +106,9 @@ class HeadController(ControllerBase):
     def _display(self, msg: Dict[str, object]) -> bool:
         """Send one display command.
 
-        A refusal — no LED matrix on this robot, the base stack down, an
-        unknown animation name — raises :class:`~bonicos.CommandError` with
+        A refusal — no LED matrix on this robot (the S display shows
+        expressions only), the base stack down, an unknown animation name —
+        raises :class:`~bonicos.CommandError` with
         the robot's reason. For an unknown animation,
         ``CommandError.result["known"]`` lists the names the robot knows.
         """

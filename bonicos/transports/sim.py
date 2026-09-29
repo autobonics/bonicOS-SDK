@@ -316,6 +316,9 @@ class SimTransport(MockTransport):
             for key in fitted
             if key in protocol.JOINT_NAME_MAP
         }
+        #: The same set as registry names, in registry order — what `health`
+        #: reports as `capabilities.servos`, as a real robot does.
+        self._fitted_servos = [key for key in protocol.JOINT_NAME_MAP if key in set(fitted)]
 
         self._last_tick = time.monotonic()
 
@@ -1582,8 +1585,16 @@ class SimTransport(MockTransport):
             # reads `health()["cpu_percent"]` against the sim and then fails
             # with a KeyError on hardware has been taught the wrong shape by
             # the thing meant to stand in for it.
+            # `capabilities` too, same keys as a robot: no addons are fitted to
+            # a simulated robot, and its servos are the joints it was built with.
             return {"type": "health", "cpu_percent": 0.0, "ram_percent": 0.0,
-                    "disk_percent": 0.0, "temps": {}}
+                    "disk_percent": 0.0, "temps": {},
+                    "capabilities": {
+                        "docking": False, "bonicos": False,
+                        "gripper": {"rightGripper", "leftGripper"} <= set(self._fitted_servos),
+                        "zones": False,
+                        "servos": list(self._fitted_servos),
+                    }}
         if cmd_type == protocol.CMD_UPDATE_STATUS:
             # "unavailable" is the literal truth here and the same answer a
             # real robot gives when no bonic-host answers (a bare-metal robot,

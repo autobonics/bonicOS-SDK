@@ -49,9 +49,8 @@ class ServoID(str, Enum):
 class HeadMode(str, Enum):
     """Head expression mode for ``set_expression()`` (API.md §6).
 
-    SURPRISED and CONFUSED have no face in the robot's firmware and show a
-    heart and a colour effect respectively; ``set_expression`` warns when it
-    substitutes one. The other four are real faces.
+    Every member is a real face on every robot with a face display — the
+    A-series LED matrix and the S-series display alike.
     """
 
     NORMAL = "normal"
@@ -60,6 +59,7 @@ class HeadMode(str, Enum):
     ANGRY = "angry"
     SURPRISED = "surprised"
     CONFUSED = "confused"
+    LOVE = "love"
 
 
 class DisplayAnimation(str, Enum):

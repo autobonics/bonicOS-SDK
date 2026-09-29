@@ -1,22 +1,19 @@
 """Head expression, look, and LED-matrix display (API.md §6).
 
-**Live on A series.** robot_app packs the `CMD_MATRIX_ACTION` body and
-publishes it to the ros2_control plugin, which forwards it to the ESP over
-USB CDC. Two consequences worth knowing before you run this:
+**Expressions are live on A and S series**; the LED-matrix `display_*` calls
+are A series only. Two things worth knowing before you run this:
 
-  * **The base stack must be up.** The plugin owns `/dev/esp` and only one
-    process may hold it, so with the stack down there is no path to the panel
-    at all — every call below returns False with the robot's reason.
-  * **A series without an LED matrix says so.** M1's head is not wired this
-    way and nothing subscribes the topic, so these refuse rather than
-    silently succeeding.
+  * **The base stack must be up.** The robot's hardware plugin owns the serial
+    link to the face, so with the stack down there is no path to it at all —
+    every call below raises `CommandError` with the robot's reason.
+  * **A robot refuses what its face cannot show.** The S display shows preset
+    expressions only, so `display_*` raises there; a robot with no face
+    display (M series) refuses everything here but `look()`.
 
-`look()` moves the neck; everything else only lights pixels.
+`look()` moves the neck; everything else only changes the face.
 """
 
-import warnings
-
-from bonicos import BonicBot, DisplayAnimation, HeadMode
+from bonicos import BonicBot, CommandError, DisplayAnimation, HeadMode
 
 HOST = "192.168.29.54"  # robot/tablet IP — e.g. 172.20.10.2 for the Gazebo sim
 
@@ -25,44 +22,39 @@ def main() -> None:
     with BonicBot(HOST) as robot:
         robot.wait_for_data()
 
-        for mode in (HeadMode.HAPPY, HeadMode.SAD, HeadMode.NORMAL):
-            ok = robot.set_expression(mode)
-            print(f"set_expression({mode.value}) -> {ok}")
-
-        # Two of the six have no face in firmware and arrive as documented
-        # approximations — surprised is a heart, confused a colour effect.
-        # The call succeeds and warns; catching it is how you'd check before
-        # building a lesson around either.
-        with warnings.catch_warnings(record=True) as caught:
-            warnings.simplefilter("always")
-            robot.set_expression(HeadMode.SURPRISED)
-            for w in caught:
-                print("note:", w.message)
+        # Every HeadMode is a real face, on the A matrix and the S display.
+        for mode in HeadMode:
+            robot.set_expression(mode)
+            print(f"set_expression({mode.value})")
 
         # Plain strings work too — HeadMode is just for discoverability.
-        robot.set_expression("angry")
+        robot.set_expression("happy")
 
         # Neck aim, in DEGREES. `tilt` is neck pitch, which an A2 does not
-        # fit, so tilt alone on one returns False — nothing moved.
-        ok = robot.look(pan=20, tilt=-10, duration=1.5)
-        print(f"look(pan=20, tilt=-10) -> {ok}")
+        # fit: pan + tilt moves the pan and warns; tilt alone raises.
+        robot.look(pan=20, tilt=-10, duration=1.5)
         robot.look(pan=0, tilt=0)
 
-        # Text and colour. ASCII only — the panel's font has nothing else.
-        robot.set_display_color(r=0, g=200, b=255)
-        robot.set_display_text("Hello from bonicos!")
+        # The LED matrix (A series). On the S display these raise, so the
+        # whole block is one try — the robot's reason says why.
+        try:
+            # Text and colour. ASCII only — the panel's font has nothing else.
+            robot.set_display_color(r=0, g=200, b=255)
+            robot.set_display_text("Hello from bonicos!")
 
-        # Brightness is a raw 0-255 byte, NOT a 0..1 fraction: 0.8 is off.
-        robot.set_display_brightness(200)
+            # Brightness is a raw 0-255 byte, NOT a 0..1 fraction: 0.8 is off.
+            robot.set_display_brightness(200)
 
-        # Animations by name (DisplayAnimation), or a raw firmware index for
-        # anything the enum hasn't named yet.
-        robot.set_display_animation(DisplayAnimation.RAINBOW_WAVE)
-        robot.pause_display()
-        robot.play_display()
+            # Animations by name (DisplayAnimation), or a raw firmware index
+            # for anything the enum hasn't named yet.
+            robot.set_display_animation(DisplayAnimation.RAINBOW_WAVE)
+            robot.pause_display()
+            robot.play_display()
 
-        robot.clear_display()
-        print("Display sequence sent.")
+            robot.clear_display()
+            print("Display sequence sent.")
+        except CommandError as e:
+            print(f"no LED matrix on this robot: {e}")
 
 
 if __name__ == "__main__":

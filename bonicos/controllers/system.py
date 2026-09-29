@@ -13,6 +13,16 @@ class SystemController(ControllerBase):
     def health(self) -> dict:
         return self._command({"type": protocol.CMD_HEALTH})
 
+    def capabilities(self) -> dict:
+        """What this robot unit has, as the robot reports it — the
+        ``capabilities`` block of ``health()`` (API.md §10).
+
+        Information only. The SDK never checks it before sending a command;
+        a robot that cannot do something still answers with an error. A key
+        the robot does not report is absent — empty when it reports none."""
+        caps = self.health().get("capabilities")
+        return dict(caps) if isinstance(caps, dict) else {}
+
     # --- base session (the ROS stack under mapping/navigation) -------------
 
     def restart_base_session(self, timeout: float = 120.0) -> bool:

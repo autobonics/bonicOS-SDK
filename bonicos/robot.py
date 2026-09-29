@@ -637,6 +637,9 @@ class BonicBot:
     def health(self) -> dict:
         return self.system.health()
 
+    def capabilities(self) -> dict:
+        return self.system.capabilities()
+
     def restart_base_session(self, timeout: float = 120.0) -> bool:
         return self.system.restart_base_session(timeout)
 

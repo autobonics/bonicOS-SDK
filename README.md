@@ -87,12 +87,11 @@ Your code runs; that actuator just doesn't move. They are marked **🔌 stub** i
 - Nav2 lifecycle — `start_navigation`, `stop_navigation`
 - `servo_single`
 
-Head expression and the LED matrix (`set_expression`, `look`, `display_*`) are
-**live on A series** as of robot_app's face-matrix path. They need the base
-stack up, and a series with no matrix answers with an error rather than
-pretending. Two expressions — `surprised` and `confused` — have no face in
-firmware and show a heart and a colour effect; `set_expression` warns when it
-substitutes one.
+Head expression (`set_expression`, `look`) is **live on A and S series**, and
+every `HeadMode` expression is a real face on both. The LED-matrix `display_*`
+calls are A series only — the S display shows preset expressions and refuses
+them. All of it needs the base stack up, and a robot with no face display
+answers with an error rather than pretending.
 
 Everything else in the table above is live. Vision pipelines (face/pose/object
 detection), autonomous exploration, and recorded sequences are not in this

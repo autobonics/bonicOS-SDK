@@ -16,10 +16,11 @@ Wire details live in [PROTOCOL.md](./PROTOCOL.md).
 > Everything else behaves as documented.
 
 > **This page is the capability reference.** The SDK does not check what your
-> robot supports and the robot does not advertise it — there is no
-> `robot.features`. You send a command; if the robot cannot do it, it replies
+> robot supports: you send a command, and if the robot cannot do it, it replies
 > with an error explaining why. The **On Lite** lines and 🔌 markers here are
-> how you know in advance. See [PROTOCOL.md](./PROTOCOL.md) §3.1.
+> how you know in advance what a model can do; `robot.capabilities()` (§10)
+> tells you what your particular unit was built with — which servos, and which
+> addons such as a gripper. See [PROTOCOL.md](./PROTOCOL.md) §3.1.
 
 > **Errors.** Every method that sends a command raises `CommandError` if the
 > robot refuses it or fails, with the robot's reason as the message. `-> bool`
@@ -68,10 +69,10 @@ on your laptop and on the robot itself. It looks for a target in this order:
 | `robot.cameras -> list[str]` | no | Camera names this robot streams, for `get_camera_frame(name)`. Empty means none. |
 
 > **There is no `robot.features`, `robot.model`, `robot.variant`, `robot.is_pro`
-> or `robot.joints`.** Capability is documented here, not advertised at runtime
-> — the **On Lite** line in each section is how you know in advance. To discover
-> which actuators a robot actually has, use `get_servo_angles()` (§5), which
-> reports exactly the fitted set.
+> or `robot.joints`.** What a model can do is documented here — the **On Lite**
+> line in each section. What your unit was built with comes from
+> `robot.capabilities()` (§10): its servos and fitted addons. Nothing is gated on
+> it; the robot still answers every command itself.
 
 ### Trying it without hardware
 
@@ -370,30 +371,32 @@ Grouped access: `robot.arm.*`.
 
 ---
 
-## 6. Head expression & display — **✅ live on A series**
+## 6. Head expression & display — **✅ live on A and S series**
 
-Live on both Lite and Pro. On Pro the path is robot_app -> `/face/matrix_action`
+Live on both Lite and Pro. On Pro the path is robot_app -> `/face/display_action`
 -> the ros2_control plugin -> `CMD_MATRIX_ACTION` over USB CDC to the ESP.
 
 > **Needs the base stack up.** The plugin owns `/dev/esp` and only one process
 > may hold it, so with the stack down there is no path to the display at all.
-> A series with no LED matrix (M1 has no subscriber for the topic) answers with
-> an error rather than a silent success.
+> A robot with no face display (M series) answers with an error rather than a
+> silent success.
+
+| | A series (LED matrix) | S series (display) |
+|---|---|---|
+| `set_expression` | ✅ every `HeadMode`, and `"none"` to blank it | ✅ every `HeadMode`; `"none"` is refused — it always shows an expression |
+| `display_*` | ✅ | ❌ refused — preset expressions only |
 
 | Method | Description |
 |---|---|
-| `robot.set_expression(mode)` | `"normal"/"happy"/"sad"/"angry"/"surprised"/"confused"` (`HeadMode` enum). |
+| `robot.set_expression(mode)` | `"normal"/"happy"/"sad"/"angry"/"surprised"/"confused"/"love"` (`HeadMode` enum). |
 | `robot.look(pan=None, tilt=None, speed=None, *, duration=1.0)` | Neck pan/tilt in **degrees**, via the head controller group. |
-| `robot.set_display_text(text)` | LED-matrix text (ASCII; the panel font has nothing else). |
-| `robot.set_display_color(r, g, b)` | Matrix color, 0-255 per channel. |
-| `robot.set_display_animation(mode)` / `play_display()` / `pause_display()` / `clear_display()` | Matrix animation control. A `DisplayAnimation` member, its bare name, or a raw firmware index. |
-| `robot.set_display_brightness(value)` | Matrix brightness, **0-255** — not a 0..1 fraction. |
+| `robot.set_display_text(text)` | LED-matrix text (ASCII; the panel font has nothing else). A series. |
+| `robot.set_display_color(r, g, b)` | Matrix color, 0-255 per channel. A series. |
+| `robot.set_display_animation(mode)` / `play_display()` / `pause_display()` / `clear_display()` | Matrix animation control. A `DisplayAnimation` member, its bare name, or a raw firmware index. A series. |
+| `robot.set_display_brightness(value)` | Matrix brightness, **0-255** — not a 0..1 fraction. A series. |
 
-**Two expressions are approximations.** Firmware has no `surprised` or
-`confused` face, so they show a heart and a colour effect respectively. The
-robot reports the substitution and `set_expression` raises a `UserWarning`
-saying which — don't build material around either without checking what the
-panel actually does.
+**Every expression is a real face** — all seven `HeadMode` members, on the
+A-series matrix and the S-series display alike.
 
 **Animation names come from `DisplayAnimation`** — `static_text`,
 `scrolling_text`, `rainbow_wave`, `fire`, `plasma`, `matrix_rain`,
@@ -403,7 +406,8 @@ int is passed through as a firmware animation index for anything the enum
 does not name yet. An unknown name is refused, with the list the robot knows.
 
 **A refused display command raises `CommandError`** with the robot's reason,
-e.g. "no LED matrix on this series" or "the base stack is down". For an
+e.g. "no face display on series m", "this robot's face shows preset
+expressions only" (a `display_*` call on S) or "the base stack is down". For an
 unknown animation name, `err.result["known"]` lists the names the robot knows.
 
 **`look` raises when nothing could move.** `tilt` is neck pitch, which an A2
@@ -720,7 +724,8 @@ capability gating was removed — see PROTOCOL.md §3.1.)
 
 | Method | Description |
 |---|---|
-| `robot.health() -> dict` | `{"cpu_percent", "ram_percent", "disk_percent", "temps": {sensor: °C}}`, plus `runcode` where a code runner is wired up. **Not** container state — robot_app no longer updates itself, so the host owns that; `system.update_status()` answers it. |
+| `robot.health() -> dict` | `{"cpu_percent", "ram_percent", "disk_percent", "temps": {sensor: °C}}`, plus `runcode` where a code runner is wired up, and `capabilities` (below). **Not** container state — robot_app no longer updates itself, so the host owns that; `system.update_status()` answers it. |
+| `robot.capabilities() -> dict` | What this unit has, as the robot reports it: `{"servos": [...], "gripper": bool, "docking": bool, "bonicos": bool, "zones": bool}`. `servos` lists the servo names (`ServoID` values) the unit was built with — `None` if its build was never recorded; `gripper`, `docking` and `bonicos` are fitted addons; `zones` is whether the robot supports map zones. For information only: the SDK never checks it before sending a command. A key the robot does not report is absent (`{}` when it reports none), so read it with `.get()`. |
 | `robot.restart_base_session(timeout=120.0) -> bool` | Recover a wedged robot: restart the ROS stack *underneath* mapping/navigation (drive, controllers, EKF, sensors, TF) — nav session down, base down, base up, nav session back. Refused while the robot is moving or running a nav goal — cancel/stop first. Slow (cold-start Gazebo alone is ~25s); the long default timeout reflects that, and a WebRTC video peer will drop partway through since the restart takes the camera topics with it. |
 | `robot.system.start_base_session(timeout=120.0) -> bool` | Bring the base stack up. A real robot does **not** start it on boot — powering on must not energise servos on its own — so this is how a freshly-booted robot is brought to life without SSH. |
 | `robot.system.stop_base_session(timeout=60.0) -> bool` | Take the base stack down; the robot can't move or perceive until it's restarted. Same guard as `restart_base_session` — refused while moving or running a goal. |

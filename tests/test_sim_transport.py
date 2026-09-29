@@ -955,6 +955,18 @@ def test_health_uses_the_robots_field_names(sim: SimTransport) -> None:
     assert set(ack) >= {"cpu_percent", "ram_percent", "disk_percent", "temps"}
 
 
+def test_health_reports_capabilities_like_a_robot() -> None:
+    sim = SimTransport(joints=["neckYaw", "leftElbow", "leftGripper", "rightGripper"])
+    ack = sim.wait_for_ack(sim.send({"type": protocol.CMD_HEALTH}))
+    caps = ack["capabilities"]
+    assert set(caps) == {"docking", "bonicos", "gripper", "zones", "servos"}
+    assert caps["servos"] == ["rightGripper", "leftElbow", "leftGripper", "neckYaw"]
+    assert caps["gripper"] is True
+    no_grippers = SimTransport(joints=["neckYaw"])
+    ack = no_grippers.wait_for_ack(no_grippers.send({"type": protocol.CMD_HEALTH}))
+    assert ack["capabilities"]["gripper"] is False
+
+
 def test_update_status_reports_unavailable_rather_than_bare_ok(
     sim: SimTransport,
 ) -> None:

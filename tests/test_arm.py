@@ -375,3 +375,15 @@ def test_reset_servos_before_joint_states_does_not_warn(robot, transport) -> Non
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         robot.arm.reset_servos()
+
+
+def test_grippers_on_a_unit_built_without_them_raise_the_robots_reason(robot, transport) -> None:
+    # The robot never drives a servo the unit lacks; when that is every servo
+    # named it refuses, and the call fails at once instead of timing out.
+    transport.script_ack(protocol.CMD_SERVO_COMMAND, {
+        "ok": False, "groups": [], "failed": {}, "unknown": [],
+        "unsupported": ["left_gripper_finger1_joint", "right_gripper_finger1_joint"],
+        "error": "this robot has no leftGripper, rightGripper",
+    })
+    with pytest.raises(CommandError, match="this robot has no leftGripper, rightGripper"):
+        robot.arm.set_grippers(10.0, 10.0)

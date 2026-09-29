@@ -1,9 +1,7 @@
-"""Head expression & LED matrix (API.md §6).
+"""Head expression & face display (API.md §6).
 
-Live on A series since robot_app gained the face-matrix path. These pin the
-two things that were wrong or absent while it was a stub: the unit conversion
-on ``look``, and telling the caller when the robot did not actually do what
-was asked.
+These pin the unit conversion on ``look``, and telling the caller when the
+robot did not actually do what was asked.
 """
 
 from __future__ import annotations
@@ -35,8 +33,8 @@ def test_set_expression_accepts_a_bare_string(robot, transport) -> None:
 def test_substituted_expression_warns_rather_than_passing_silently(
     robot, transport
 ) -> None:
-    # "surprised" is a heart in firmware. Returning a bare True here is how a
-    # lesson gets built around a face the robot cannot make.
+    # A robot that reports showing a stand-in face. Returning a bare True here
+    # is how a lesson gets built around a face the robot did not make.
     transport.script_ack(
         protocol.CMD_HEAD_MODE,
         {"ok": True, "mode": "surprised", "substituted": "love (a heart)"},
@@ -195,3 +193,16 @@ def test_a_successful_display_command_does_not_warn(robot, transport) -> None:
     with warnings.catch_warnings():
         warnings.simplefilter("error")
         assert robot.head.set_display_text("hi") is True
+
+
+def test_love_is_a_head_mode(robot, transport) -> None:
+    transport.script_ack(protocol.CMD_HEAD_MODE, {"ok": True, "mode": "love", "emotion_id": 6})
+    assert robot.head.set_expression(HeadMode.LOVE) is True
+    assert transport.sent[-1]["mode"] == "love"
+
+
+def test_an_expressions_only_display_refusal_raises_with_the_reason(robot, transport) -> None:
+    transport.script_ack(protocol.CMD_DISPLAY_TEXT, {
+        "ok": False, "error": "this robot's face shows preset expressions only"})
+    with pytest.raises(CommandError, match="preset expressions only"):
+        robot.head.set_display_text("hi")

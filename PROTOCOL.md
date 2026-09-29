@@ -146,11 +146,25 @@ no model of the robot's capabilities, performs no local gating, and never
 predicts a failure. If a robot cannot do something, it says so (§2.1).
 
 **Capability is documented, not negotiated.** The per-model matrix lives in
-[`API.md`](./API.md), where every section carries an **On Lite** line. A person
-writing a program knows which robot they own. There is no `features` map in the
-handshake, no client-side gate, and none should be added — a server with no
+[`API.md`](./API.md), where every section carries an **On Lite** line. There is
+no `features` map in the handshake and no client-side gate — a server with no
 handler for a command cannot be wrong about its own hardware the way a
 capability table can.
+
+**Per-unit fitment is reported, never gated on.** Two robots of the same model
+can differ: servos are a build option and some parts (gripper, docking) are
+addons. The robot reports what it was built with in the `health` reply's
+`capabilities` block, from its own configuration:
+
+| Key | Meaning |
+|---|---|
+| `servos` | registry servo names this unit is built with; `null` if its build was never recorded |
+| `gripper`, `docking`, `bonicos` | addons fitted to this unit |
+| `zones` | the robot supports map zones |
+
+It is information for the person writing the program (`robot.capabilities()`).
+Clients must not block a command on it; the robot still answers every command
+itself.
 
 #### Consequences for client authors
 
@@ -158,11 +172,13 @@ capability table can.
   Against a 5 s default ack timeout this is immaterial.
 - **Cached readers are ambiguous.** `get_map()` on a robot with no mapping
   returns `None`, which is indistinguishable from *"nothing has arrived yet"*.
-- **Naming a joint the robot does not physically have fails silently** — it is
-  the one case with no error. `set_servos(wait=True)` waits for `joint_states`
-  convergence on an actuator that will never move, and times out with no
-  explanation. `get_servo_angles()` returns exactly the fitted set, so it is the
-  runtime way to discover a robot's joints.
+- **Naming a servo the robot does not have is reported, not driven.** The robot
+  lists it in the reply's `unsupported`, and `set_servos` raises `CommandError`
+  when none of the named servos exist (it warns and moves the rest when only
+  some are missing). On a robot whose build was never recorded
+  (`capabilities.servos` is `null`) the robot cannot tell, and such a command
+  times out instead. `joint_states` — and so `get_servo_angles()` — reports only
+  the servos the unit has.
 
 ---
 
@@ -326,8 +342,8 @@ and a rear camera, both part of an optional per-robot **docking addon**.
 A robot without the addon answers `save_dock`, `dock` and `undock` with
 `ok: false` and an `error` saying docking isn't available (§3.1: the client
 sends, the robot refuses). `list_docks`/`delete_dock` answer on every robot.
-`health` includes `capabilities: {"docking": bool}` for display only; clients
-do not gate commands on it.
+`health.capabilities.docking` says whether the addon is fitted (§3.1), for
+information only; clients do not gate commands on it.
 
 A dock pose is map-frame and resolves its map exactly as locations do, but is
 stored separately — docks never appear in `list_locations`. `save_dock` has
@@ -419,27 +435,29 @@ they differ per series too — the gripper travels −45°..60° on A/S and
 canned poses (`open_grippers`, `look_left`, …) command values valid on every
 series, so they don't get clamped into a convergence timeout.
 
-### 5.5 Head expression & LED matrix — ✅ live on A series
+### 5.5 Head expression & face display — ✅ live on A and S series
 
 The server packs the `CMD_MATRIX_ACTION` body and publishes it on the series'
-face-matrix topic; the ros2_control plugin forwards those bytes to the ESP
+face-display topic; the ros2_control plugin forwards those bytes to the ESP
 unchanged. A series with no such topic answers `ok:false` with
-`no LED matrix on series <X>` — never a silent success.
+`no face display on series <X>` — never a silent success. The S-series display
+shows preset expressions only: every `display_*` command, and `head_mode none`,
+answers `ok:false` there.
 
 | type | status | fields |
 |---|---|---|
-| `head_mode` | ✅ | `mode` (`normal`/`happy`/`sad`/`angry`/`surprised`/`confused`) |
+| `head_mode` | ✅ | `mode` (`normal`/`happy`/`sad`/`angry`/`surprised`/`confused`/`love`, or `none` to blank an A-series matrix) |
 | `head_look` | ✅ | `pan?`, `tilt?` (**radians**), `duration?`; `speed?` accepted and ignored |
-| `display_text` | ✅ | `text` (ASCII) |
-| `display_color` | ✅ | `r`, `g`, `b` (0-255) |
-| `display_animation` | ✅ | `mode` — a name, `"play"`/`"pause"`, or a raw firmware index |
-| `display_brightness` | ✅ | `value` (0-255) |
-| `display_clear` | ✅ | — |
+| `display_text` | ✅ A | `text` (ASCII) |
+| `display_color` | ✅ A | `r`, `g`, `b` (0-255) |
+| `display_animation` | ✅ A | `mode` — a name, `"play"`/`"pause"`, or a raw firmware index |
+| `display_brightness` | ✅ A | `value` (0-255) |
+| `display_clear` | ✅ A | — |
 
-`head_mode` acks carry `substituted` when the requested expression has no face
-in firmware and an approximation went out instead (`surprised` -> a heart,
-`confused` -> a colour effect). Clients must surface it rather than treat the
-call as an exact success.
+Every `head_mode` expression is a real face on both heads; the ack carries
+`mode` and `emotion_id`. An ack that carries `substituted` means the robot
+showed a stand-in instead of the face asked for, and clients must surface it
+rather than treat the call as an exact success.
 
 `head_look` goes through `servo_command`'s head controller group, as this
 section always anticipated. It carries radians like every other joint command
