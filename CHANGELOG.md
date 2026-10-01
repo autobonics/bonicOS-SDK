@@ -4,6 +4,27 @@ All notable changes to `bonicos`. This project follows
 [Semantic Versioning](https://semver.org/); while on `0.x`, breaking changes
 bump the minor version.
 
+## [1.1.0] — 2026-10-01
+
+### Changed
+
+- **`speak()` waits until the robot has finished speaking.** The next line
+  of a program now runs after the words instead of over them. It returns
+  `True` once the speech has been said, `False` if it has not within
+  `timeout` seconds, and raises `CommandError` with the reason if the speech
+  fails part-way. Pass `wait=False` for the previous behaviour — return as
+  soon as the speech is queued.
+
+### Added
+
+- **`speak(wait=..., timeout=...)`** and **`wait_for_speech(timeout=None)`**,
+  which blocks until everything queued with `speak(wait=False)` has been
+  said.
+- `protocol.EVENT_SPEAK_STATUS`, `protocol.SPEAK_FINISHED` and
+  `protocol.SPEAK_FAILED`: the event that ends each `speak`.
+- The simulator waits for speech too, when its host reports when an
+  utterance has finished playing: `set_speech_provider(provider, pending=...)`.
+
 ## [1.0.0] — 2026-09-29
 
 ### Added
