@@ -123,6 +123,9 @@ SPEAK_ENGINE_CLOUD = "cloud"
 SPEAK_ENGINES = (SPEAK_ENGINE_EDGE, SPEAK_ENGINE_CLOUD)
 #: ``speak`` rate bounds, inclusive. 1.0 is normal speed; higher is faster.
 SPEAK_RATE_RANGE = (0.5, 2.0)
+#: ``speak_status`` statuses: the words have played out, or could not be said.
+SPEAK_FINISHED = "finished"
+SPEAK_FAILED = "failed"
 
 #: The robot's agent (BonicOS only): open / end the conversation with it on
 #: the robot's display.
@@ -211,6 +214,11 @@ EVENT_NAV_STATUS = "nav_status"
 #: Adds ``error`` and ``error_code`` on a failed attempt.
 EVENT_DOCK_STATUS = "dock_status"
 
+#: The end of one ``speak``: ``{"speak_id", "status": "finished" | "failed",
+#: "error"?}``. ``speak_id`` is the id that ``speak``'s ack carried. Sent once
+#: per utterance, only to the client that asked for it.
+EVENT_SPEAK_STATUS = "speak_status"
+
 #: Downsampled laser scan, already transformed into the **map** frame:
 #: ``{"origin": {"x", "y", "theta"}, "angle_min", "angle_increment",
 #: "range_min", "range_max", "ranges": [float | None, ...]}``. ``origin`` is
@@ -282,7 +290,7 @@ TELEMETRY_EVENTS = frozenset(
 
 #: Discrete async events, not a continuous cache — surfaced via per-topic
 #: waiters/queues (e.g. ``wait_for_goal()`` watches ``nav_status``).
-ASYNC_EVENTS = frozenset({EVENT_NAV_STATUS, EVENT_DOCK_STATUS})
+ASYNC_EVENTS = frozenset({EVENT_NAV_STATUS, EVENT_DOCK_STATUS, EVENT_SPEAK_STATUS})
 
 #: Events replayed by the server on ``auth`` / ``subscribe`` (PROTOCOL.md
 #: §3, §5.7) since they're expensive to regenerate.

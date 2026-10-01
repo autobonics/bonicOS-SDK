@@ -192,7 +192,10 @@ Three patterns; the SDK's blocking methods are built on them.
 2. **Fire-and-monitor** — long actions (Nav2). `ack` returns a `goal_id`
    *immediately*; real completion arrives as `nav_status` telemetry events
    (`navigating → succeeded | failed | canceled`). The SDK's `wait_for_goal()`
-   watches `nav_status`.
+   watches `nav_status`. `speak` works the same way: its `ack` returns a
+   `speak_id`, and a `speak_status` event carrying that id arrives when the
+   words have played out. `speak(wait=True)` and `wait_for_speech()` watch
+   `speak_status`.
 3. **Client-side loop** — precise motion (`drive_distance`, …). No dedicated
    server command in v1; the SDK loops `drive` + odom locally.
 
@@ -476,7 +479,7 @@ choice.
 
 | type | fields | reply |
 |---|---|---|
-| `speak` | `text`, `language?`, `voice?`, `rate?`, `engine?`, `use_agent?` | `ack {ok}` |
+| `speak` | `text`, `language?`, `voice?`, `rate?`, `engine?`, `use_agent?` | `ack {ok, speak_id}`, then a `speak_status` event |
 
 - `text` — non-empty, at most 1000 characters.
 - `language` — a language code (`en-US`, `hi-IN`). Absent: English (`en-US`).
@@ -494,11 +497,20 @@ choice.
 
 API.md §7 lists every language code and voice name.
 
-The ack comes once the speech is queued, not once it has been heard. Speech is
-queued in order. Every refusal is `ok: false` with an `error` saying why — an
-invalid field, a language or voice the robot cannot speak, `cloud` or
-`use_agent` without BonicOS, BonicOS not connected or its agent not yet loaded,
-no credits, or too much speech already waiting.
+The ack comes once the speech is queued, not once it has been heard, and
+carries a `speak_id`. Speech is said in the order it was queued. Every refusal
+is `ok: false` with an `error` saying why — an invalid field, a language or
+voice the robot cannot speak, `cloud` or `use_agent` without BonicOS, BonicOS
+not connected or its agent not yet loaded, no credits, or too much speech
+already waiting.
+
+When the words have played out the robot sends
+`speak_status {speak_id, status, error?}` to the client that asked, and to no
+other. `status` is `"finished"`, or `"failed"` with an `error` saying why —
+the speaker dropping out part-way, a cloud voice that could not be reached,
+the BonicOS app disconnecting. One event per accepted `speak`; a refused
+`speak` gets none. The ack is never held until the speech ends, so other
+commands on the same connection are not kept waiting behind a sentence.
 
 | Robot | Spoken by |
 |---|---|
@@ -678,6 +690,7 @@ shapes come from `robot_app/ros/bridge_base.py`.
 | `scan` | `origin:{x,y,theta}, angle_min, angle_increment, range_min, range_max, ranges:[float\|null]` | `sensors.get_scan()`, `get_scan_points()` (**on demand** — see `set_scan_enabled`) |
 | `nav_status` | `status: idle\|navigating\|succeeded\|failed\|canceled`, `goal_id?`, `distance_to_goal?` | `wait_for_goal()`, `get_nav_status()` |
 | `dock_status` | `status: navigating\|succeeded\|failed\|canceled`, `goal_id`, `error?`, `error_code?` | `wait_for_dock()`, `get_dock_status()`, `get_dock_result()` |
+| `speak_status` | `speak_id`, `status: finished\|failed`, `error?` | `speak(wait=True)`, `wait_for_speech()` (sent only to the client whose `speak` it ends — §5.6) |
 | `nav_mode` | `mode: idle\|mapping\|navigating`, `map`, `transitioning`, `localized` | `get_nav_mode()` (cached, replayed on auth — same mechanism as `map`/`costmap`) |
 | `base_session` | `running, owned, transitioning, error` | `system.get_base_session()` (cached, replayed on auth) |
 | `session_health` | `ok, base:{...}, nav:{...}, issues:[...]` | `system.get_session_health()` (cached, replayed on auth; pushed only on change) |

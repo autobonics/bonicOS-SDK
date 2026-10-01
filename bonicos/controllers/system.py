@@ -2,14 +2,32 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+import time
+from typing import TYPE_CHECKING, Any, Dict, Optional
 
 from .. import protocol
 from ..exceptions import CommandError
 from ._base import ControllerBase
 
+if TYPE_CHECKING:
+    from ..robot import BonicBot
+
 
 class SystemController(ControllerBase):
+    #: How long waiting for speech allows one utterance by default: a margin
+    #: for it to start, plus time per character at the slowest rate.
+    _SPEECH_MARGIN_S = 30.0
+    _SPEECH_PER_CHAR_S = 0.25
+
+    def __init__(self, robot: "BonicBot") -> None:
+        super().__init__(robot)
+        #: The last utterance queued and not yet known to have ended. The
+        #: robot speaks in the order asked, so when this one has been said,
+        #: everything queued before it has too.
+        self._speech_id: Optional[str] = None
+        #: When everything queued so far should have been said by.
+        self._speech_deadline = 0.0
+
     def health(self) -> dict:
         return self._command({"type": protocol.CMD_HEALTH})
 
@@ -177,8 +195,11 @@ class SystemController(ControllerBase):
         rate: Optional[float] = None,
         engine: Optional[str] = None,
         use_agent: bool = False,
+        wait: bool = True,
+        timeout: Optional[float] = None,
     ) -> bool:
-        """Say ``text`` through the robot's speaker.
+        """Say ``text`` through the robot's speaker, and wait until it has
+        been said.
 
         ``language`` is a tag such as ``"en-US"`` or ``"hi-IN"``; ``rate`` runs
         from 0.5 to 2.0, where 1.0 is normal speed and higher is faster.
@@ -193,11 +214,17 @@ class SystemController(ControllerBase):
         — ignoring ``voice``, ``language``, ``rate`` and ``engine`` (robots
         with BonicOS only).
 
-        Returns once the robot has queued the speech, not once it has been
-        heard. Raises :class:`~bonicos.CommandError` with the robot's reason
-        if it can't be said — a language the voice doesn't speak, for
-        example, or a cloud voice on a robot without BonicOS. API.md §7 lists
-        every supported language and voice.
+        Returns ``True`` once the robot has finished speaking, or ``False``
+        if it has not within ``timeout`` seconds — by default, long enough
+        for the text and anything queued before it. With ``wait=False`` it
+        returns as soon as the robot has queued the speech, and the program
+        carries on while the robot talks; :meth:`wait_for_speech` waits for
+        it later.
+
+        Raises :class:`~bonicos.CommandError` with the robot's reason if it
+        can't be said — a language the voice doesn't speak, for example, a
+        cloud voice on a robot without BonicOS, or a speaker that dropped
+        out part-way. API.md §7 lists every supported language and voice.
         """
         payload: Dict[str, object] = {"type": protocol.CMD_SPEAK, "text": text}
         if voice is not None:
@@ -210,8 +237,49 @@ class SystemController(ControllerBase):
             payload["engine"] = engine
         if use_agent:
             payload["use_agent"] = use_agent
-        self._command(payload)
-        return True
+        result = self._command(payload)
+        self._speech_id = result.get("speak_id")
+        self._speech_deadline = (
+            max(self._speech_deadline, time.monotonic())
+            + self._SPEECH_MARGIN_S
+            + len(text) * self._SPEECH_PER_CHAR_S
+        )
+        if not wait:
+            return True
+        return self.wait_for_speech(timeout)
+
+    def wait_for_speech(self, timeout: Optional[float] = None) -> bool:
+        """Block until the robot has said everything queued with
+        :meth:`speak`.
+
+        Returns ``True`` once it has — at once if nothing is waiting to be
+        said — or ``False`` if it has not within ``timeout`` seconds; by
+        default, long enough for everything queued. Raises
+        :class:`~bonicos.CommandError` with the robot's reason if the last
+        utterance could not be said.
+        """
+        speak_id = self._speech_id
+        if speak_id is None:
+            return True
+        deadline = (
+            self._speech_deadline if timeout is None else time.monotonic() + timeout
+        )
+        while True:
+            event = self._latest(protocol.EVENT_SPEAK_STATUS)
+            if event is not None and event.get("speak_id") == speak_id:
+                self._speech_id = None
+                self._speech_deadline = 0.0
+                if event.get("status") == protocol.SPEAK_FAILED:
+                    raise CommandError(
+                        protocol.CMD_SPEAK,
+                        event.get("error") or "the robot couldn't say that",
+                        event,
+                    )
+                return True
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return False
+            self._transport.wait_for_update(min(remaining, 1.0))
 
     def run_agent(self) -> bool:
         """Start the robot's current agent: its conversation screen opens on

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import threading
+import time
+
 import pytest
 
 from bonicos import BonicBot, protocol
@@ -199,6 +202,64 @@ def test_speak_raises_the_robots_reason(robot, transport) -> None:
                               "doesn't have"})
     with pytest.raises(CommandError, match="cloud voices need BonicOS"):
         robot.system.speak("hi", engine="cloud")
+
+
+def _said(transport, speak_id, after=0.0, **status) -> None:
+    """The robot reporting ``speak_id`` as said, ``after`` seconds from now."""
+    payload = {"speak_id": speak_id, "status": protocol.SPEAK_FINISHED, **status}
+    threading.Timer(
+        after, transport.push_event, (protocol.EVENT_SPEAK_STATUS, payload)
+    ).start()
+
+
+def test_speak_waits_until_the_robot_has_said_it(robot, transport) -> None:
+    transport.script_ack(protocol.CMD_SPEAK, {"ok": True, "speak_id": "s1"})
+    _said(transport, "s1", after=0.3)
+    started = time.monotonic()
+    # Through the BonicBot facade, so its forwarding is covered too.
+    assert BonicBot.speak(robot, "hello") is True
+    assert time.monotonic() - started >= 0.3
+    assert "wait" not in transport.sent[-1] and "timeout" not in transport.sent[-1]
+
+
+def test_speak_without_wait_returns_once_queued(robot, transport) -> None:
+    transport.script_ack(protocol.CMD_SPEAK, {"ok": True, "speak_id": "s1"})
+    assert BonicBot.speak(robot, "hello", wait=False) is True
+    assert BonicBot.wait_for_speech(robot, timeout=0.05) is False
+    _said(transport, "s1")
+    assert BonicBot.wait_for_speech(robot) is True
+
+
+def test_wait_for_speech_with_nothing_queued_returns_at_once(robot, transport) -> None:
+    assert robot.system.wait_for_speech() is True
+    transport.script_ack(protocol.CMD_SPEAK, {"ok": True, "speak_id": "s1"})
+    _said(transport, "s1")
+    robot.system.speak("hello")
+    # Already said: a second wait has nothing left to wait for.
+    assert robot.system.wait_for_speech(timeout=0.05) is True
+
+
+def test_speak_returns_false_when_the_robot_is_still_speaking(robot, transport) -> None:
+    transport.script_ack(protocol.CMD_SPEAK, {"ok": True, "speak_id": "s1"})
+    assert robot.system.speak("hello", timeout=0.05) is False
+
+
+def test_speak_waits_for_its_own_utterance(robot, transport) -> None:
+    # An earlier utterance ending is not this one ending.
+    transport.script_ack(protocol.CMD_SPEAK, {"ok": True, "speak_id": "s2"})
+    _said(transport, "s1")
+    assert robot.system.speak("hello", timeout=0.2) is False
+
+
+def test_speak_raises_why_the_robot_could_not_finish(robot, transport) -> None:
+    transport.script_ack(protocol.CMD_SPEAK, {"ok": True, "speak_id": "s1"})
+    _said(transport, "s1", status=protocol.SPEAK_FAILED,
+          error="the robot's speaker couldn't play that")
+    with pytest.raises(CommandError, match="speaker couldn't play that") as raised:
+        robot.system.speak("hello")
+    assert raised.value.command == protocol.CMD_SPEAK
+    # Reported once: there is nothing left to wait for afterwards.
+    assert robot.system.wait_for_speech() is True
 
 
 @pytest.mark.parametrize("method, command", [("run_agent", protocol.CMD_RUN_AGENT),

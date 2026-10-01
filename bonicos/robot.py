@@ -596,9 +596,15 @@ class BonicBot:
         rate: Optional[float] = None,
         engine: Optional[str] = None,
         use_agent: bool = False,
+        wait: bool = True,
+        timeout: Optional[float] = None,
     ) -> bool:
         return self.system.speak(text, voice, language=language, rate=rate,
-                                 engine=engine, use_agent=use_agent)
+                                 engine=engine, use_agent=use_agent,
+                                 wait=wait, timeout=timeout)
+
+    def wait_for_speech(self, timeout: Optional[float] = None) -> bool:
+        return self.system.wait_for_speech(timeout)
 
     def run_agent(self) -> bool:
         return self.system.run_agent()

@@ -1006,6 +1006,55 @@ def test_speak_acks_true_with_no_provider(sim: SimTransport) -> None:
     assert ack.get("ok") is True
 
 
+def test_speak_with_no_provider_is_said_at_once(sim: SimTransport) -> None:
+    ack = sim.wait_for_ack(sim.send({"type": protocol.CMD_SPEAK, "text": "hello"}))
+    assert sim.read_telemetry()[protocol.EVENT_SPEAK_STATUS] == {
+        "type": protocol.EVENT_SPEAK_STATUS,
+        "speak_id": ack["speak_id"],
+        "status": protocol.SPEAK_FINISHED,
+    }
+
+
+def test_speak_is_said_when_the_host_has_played_it(sim: SimTransport) -> None:
+    playing = []
+    sim.set_speech_provider(
+        lambda text, *options: playing.append(text), pending=lambda: len(playing)
+    )
+    first = sim.wait_for_ack(sim.send({"type": protocol.CMD_SPEAK, "text": "one"}))
+    second = sim.wait_for_ack(sim.send({"type": protocol.CMD_SPEAK, "text": "two"}))
+    assert first["speak_id"] != second["speak_id"]
+    assert protocol.EVENT_SPEAK_STATUS not in sim.read_telemetry()
+    playing.pop(0)  # the host finishes "one"
+    assert sim.read_telemetry()[protocol.EVENT_SPEAK_STATUS]["speak_id"] == first["speak_id"]
+    playing.pop(0)
+    assert sim.read_telemetry()[protocol.EVENT_SPEAK_STATUS]["speak_id"] == second["speak_id"]
+
+
+def test_speak_blocks_a_program_until_the_host_has_played_it(sim: SimTransport) -> None:
+    played_at = time.monotonic() + 0.3
+    sim.set_speech_provider(
+        lambda text, *options: None,
+        pending=lambda: 1 if time.monotonic() < played_at else 0,
+    )
+    bonicos.use_transport(sim)
+    robot = bonicos.BonicBot()
+    bonicos.use_transport(None)
+    assert robot.speak("hello") is True
+    assert time.monotonic() >= played_at
+    played_at = time.monotonic() + 60
+    assert robot.speak("hello again", wait=False) is True  # does not wait
+
+
+def test_speak_without_a_pending_hook_does_not_block(sim: SimTransport) -> None:
+    sim.set_speech_provider(lambda text, *options: None)
+    bonicos.use_transport(sim)
+    robot = bonicos.BonicBot()
+    bonicos.use_transport(None)
+    started = time.monotonic()
+    assert robot.speak("hello") is True
+    assert time.monotonic() - started < 1.0
+
+
 def test_speak_calls_provider_with_every_option(sim: SimTransport) -> None:
     calls = []
 

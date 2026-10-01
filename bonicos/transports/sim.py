@@ -383,8 +383,14 @@ class SimTransport(MockTransport):
         # --- one via `set_speech_provider` — same seam as the camera's
         # --- `set_frame_provider`. No provider means `speak()` keeps the
         # --- pre-existing silent-ack stub behaviour.
-        #: ``(text, voice) -> bool | None``
-        self._speech_provider: Optional[Callable[[str, Optional[str]], Optional[bool]]] = None
+        #: ``(text, voice, language, rate, engine) -> bool | None``
+        self._speech_provider: Optional[Callable[..., Optional[bool]]] = None
+        #: ``() -> int`` — how many utterances the host has still to finish.
+        self._speech_pending: Optional[Callable[[], int]] = None
+        #: Ids of the utterances handed to the provider and not yet reported
+        #: as said, oldest first.
+        self._speaking: List[str] = []
+        self._speech_count = 0
 
         self._publish_pose_and_odom()
         self._publish_joint_states()
@@ -482,6 +488,7 @@ class SimTransport(MockTransport):
             [str, Optional[str], Optional[str], Optional[float], str],
             Optional[bool],
         ]],
+        pending: Optional[Callable[[], int]] = None,
     ) -> None:
         """Install a host callable invoked as
         ``provider(text, voice, language, rate, engine)`` for every
@@ -494,12 +501,19 @@ class SimTransport(MockTransport):
 
         With no provider installed, a valid ``speak()`` succeeds silently.
 
-        The provider's return value maps to the command's `ok`: `True`/
-        `False` pass through, and `None` (a fire-and-forget bridge with
-        nothing to report, e.g. a bare `speechSynthesis.speak()` call) is
-        treated as success.
+        The provider starts the speech and returns at once; its return value
+        maps to the command's `ok`: `True`/`False` pass through, and `None`
+        (a bridge with nothing to report, e.g. a bare
+        `speechSynthesis.speak()` call) is treated as success.
+
+        ``pending`` is a host callable returning how many of the utterances
+        handed to ``provider`` have not finished playing yet. With it, a
+        program waits for speech here as it does on a robot. Without it the
+        host cannot say when an utterance ends, so each counts as said the
+        moment it is handed over.
         """
         self._speech_provider = provider
+        self._speech_pending = pending
 
     def start_camera(self, cameras: list) -> None:
         if self._frame_provider is None:
@@ -654,6 +668,7 @@ class SimTransport(MockTransport):
         self._publish_pose_and_odom()
         self._publish_joint_states()
         self._publish_imu(dt)
+        self._advance_speech()
         self._maybe_render_camera()
 
     def _integrate_drive(self, dt: float) -> None:
@@ -1302,6 +1317,20 @@ class SimTransport(MockTransport):
             },
         )
 
+    def _advance_speech(self) -> None:
+        """Report, oldest first, every utterance the host has finished."""
+        if not self._speaking:
+            return
+        pending = 0 if self._speech_pending is None else int(self._speech_pending())
+        while len(self._speaking) > max(pending, 0):
+            self._speech_said(self._speaking.pop(0))
+
+    def _speech_said(self, speak_id: str) -> None:
+        self.set_telemetry(
+            protocol.EVENT_SPEAK_STATUS,
+            {"speak_id": speak_id, "status": protocol.SPEAK_FINISHED},
+        )
+
     def _publish_plan(self, path: List[Tuple[float, float]]) -> None:
         """`EVENT_PLAN` (dev/SIMULATOR.md §5): the smoothed path while a goal is active,
         `[]` once idle/terminal. Called once per plan change — a new goal, or
@@ -1624,8 +1653,12 @@ class SimTransport(MockTransport):
             error = _speak_refusal(msg)
             if error:
                 return {"ok": False, "error": error}
+            self._speech_count += 1
+            speak_id = str(self._speech_count)
             if self._speech_provider is None:
-                return {"ok": True}
+                # Nothing audible to wait for: said at once.
+                self._speech_said(speak_id)
+                return {"ok": True, "speak_id": speak_id}
             if msg.get("use_agent"):
                 # The agent's own voice settings replace the caller's, as on
                 # a robot; the sim has no agents, so it speaks plainly.
@@ -1640,7 +1673,9 @@ class SimTransport(MockTransport):
                 )
             result = self._speech_provider(msg.get("text", ""), *options)
             if result is None or result:
-                return {"ok": True}
+                # `_advance_speech` reports it once the host has played it.
+                self._speaking.append(speak_id)
+                return {"ok": True, "speak_id": speak_id}
             return {"ok": False,
                     "error": "the simulator could not speak that — this "
                              "browser's speech engine refused it"}

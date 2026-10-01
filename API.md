@@ -430,12 +430,43 @@ Grouped access: `robot.head.*`.
 
 | Method | Description |
 |---|---|
-| `robot.speak(text, voice=None, *, language=None, rate=None, engine=None, use_agent=False) -> bool` | Say `text` (at most 1000 characters). Returns once the speech is queued, not once it has been heard. |
+| `robot.speak(text, voice=None, *, language=None, rate=None, engine=None, use_agent=False, wait=True, timeout=None) -> bool` | Say `text` (at most 1000 characters) and wait until the robot has finished saying it. `wait=False` returns as soon as the speech is queued — see [Waiting for speech](#waiting-for-speech). |
+| `robot.wait_for_speech(timeout=None) -> bool` | Block until the robot has said everything queued with `speak`. |
 | `robot.run_agent() -> bool` | Start the robot's current agent so visitors can talk to it. BonicOS only — see [The agent](#the-agent). |
 | `robot.stop_agent() -> bool` | End the agent's conversation. BonicOS only. |
 
 Calls are spoken in order. If the robot can't say something it raises
 `CommandError` with the reason, so a program never goes quietly silent.
+
+### Waiting for speech
+
+`speak` blocks until the robot has finished speaking, so the next line runs
+after the words, not over them:
+
+```python
+robot.speak("Watch this.")
+robot.look_left()                  # starts once "Watch this." has been said
+```
+
+Pass `wait=False` to talk and act at the same time. `speak` then returns as
+soon as the robot has queued the speech, and `wait_for_speech()` waits for
+whatever is still being said:
+
+```python
+robot.speak("I am walking to the door.", wait=False)
+robot.drive_distance(1.0)          # moves while it talks
+robot.wait_for_speech()            # ...and waits for the sentence to end
+```
+
+Both return `True` once the robot has finished speaking, and `False` if it
+has not within `timeout` seconds. Leave `timeout` out and they allow long
+enough for the text, and for everything queued before it. If the speech fails
+part-way — the speaker drops out, a cloud voice can't be reached — they raise
+`CommandError` with the reason. `wait_for_speech()` returns `True` at once
+when nothing is waiting to be said.
+
+With `wait=False`, at most 8 utterances can be waiting behind the one being
+spoken; one more raises `CommandError`.
 
 ### Where the words come out
 
