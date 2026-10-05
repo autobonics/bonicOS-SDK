@@ -94,6 +94,10 @@ class WebSocketTransport:
         # keeps its slices: it waits on "anything arrived", which no single
         # notify corresponds to.)
         self._acks_cv = threading.Condition()
+        # Ids of the commands sent and not yet answered. What makes a message
+        # a reply is that it carries one of these, not what its `type` says:
+        # `health` is answered with `type: "health"`.
+        self._awaiting: set = set()
 
         self._auth_event = threading.Event()
         self._auth_result: Dict[str, Any] = {}
@@ -191,6 +195,10 @@ class WebSocketTransport:
 
         if self._ws is None:
             raise RobotDisconnected("not connected")
+        if "id" in payload:
+            # Before the send, so a reply that arrives at once is expected.
+            with self._acks_cv:
+                self._awaiting.add(cmd_id)
         try:
             self._ws.send(json.dumps(payload))
         except self._connection_closed_exc as exc:
@@ -392,12 +400,18 @@ class WebSocketTransport:
             self._auth_event.set()
             return
 
-        if msg_type in (protocol.TYPE_ACK, protocol.TYPE_ERROR):
-            cmd_id = msg.get("id")
-            if cmd_id is not None:
-                with self._acks_cv:
-                    self._acks[cmd_id] = msg
-                    self._acks_cv.notify_all()
+        # A reply: an `ack` or `error`, or anything else that carries the id
+        # of a command this client is waiting on. Checked before the event
+        # types below, because a reply may share its `type` with one.
+        cmd_id = msg.get("id")
+        with self._acks_cv:
+            awaited = isinstance(cmd_id, int) and cmd_id in self._awaiting
+            is_reply = awaited or msg_type in (protocol.TYPE_ACK, protocol.TYPE_ERROR)
+            if is_reply and cmd_id is not None:
+                self._awaiting.discard(cmd_id)
+                self._acks[cmd_id] = msg
+                self._acks_cv.notify_all()
+        if is_reply:
             return
 
         if msg_type in protocol.TELEMETRY_EVENTS or msg_type in protocol.ASYNC_EVENTS:

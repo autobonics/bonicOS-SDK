@@ -4,6 +4,16 @@ All notable changes to `bonicos`. This project follows
 [Semantic Versioning](https://semver.org/); while on `0.x`, breaking changes
 bump the minor version.
 
+## [1.1.2] — 2026-10-05
+
+### Fixed
+
+- **`robot.health()` and `robot.capabilities()` return on a real robot.**
+  Both timed out after 5 seconds with "timed out waiting for ack". A robot
+  answers `health` with a message of type `health`, and the SDK only took a
+  message of type `ack` or `error` as a reply. A reply is now the message
+  that carries the command's id, whatever its type.
+
 ## [1.1.1] — 2026-10-05
 
 ### Fixed

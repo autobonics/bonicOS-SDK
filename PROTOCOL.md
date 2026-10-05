@@ -55,6 +55,11 @@ Every message is a flat JSON object with a `type`:
 | `ack` with `ok: false` | the handler refused or failed | `{ "type":"ack", "id":42, "ok":false, "error":"<reason>", ...result }` |
 | `error` | command rejected or failed | `{ "type":"error", "id":42, "error":"<reason>" }` |
 
+**A reply is the message that carries the command's `id`.** That, not its
+`type`, is what a client matches on. Nearly every reply is an `ack`; `health`
+is answered with `type: "health"` and the same `id` (§5.7). Events never
+carry the `id` of a command.
+
 **Two response types, not three.** There is no `feature_unavailable`. A command
 this robot cannot perform is refused like any other failure — see §3.1 for
 why capability is not negotiated, and §2.1 for what the refusal must say.
@@ -188,7 +193,7 @@ Three patterns; the SDK's blocking methods are built on them.
 
 1. **Immediate** — handler returns a result; server sends `ack` with the result
    fields. `save_map`, `list_maps`, `health`, servo commands. The SDK's
-   `wait_for_ack(id)` returns it.
+   `wait_for_ack(id)` returns the reply carrying that `id` (§2).
 2. **Fire-and-monitor** — long actions (Nav2). `ack` returns a `goal_id`
    *immediately*; real completion arrives as `nav_status` telemetry events
    (`navigating → succeeded | failed | canceled`). The SDK's `wait_for_goal()`
@@ -539,7 +544,7 @@ when no agent is running.
 
 | type | status | fields | reply |
 |---|---|---|---|
-| `health` | ✅ live | — | `ack {type:"health", cpu_percent, ram_percent, disk_percent, temps:{...}, runcode?}` |
+| `health` | ✅ live | — | `{type:"health", id, cpu_percent, ram_percent, disk_percent, temps:{...}, runcode?, capabilities}` — typed `health`, not `ack`; matched by `id` |
 | `restart_base_session` | ✅ live | — | `ack {ok, error?, running, transitioning}` |
 | `start_base_session` | ✅ live | — | `ack {ok, error?, running, transitioning}` |
 | `stop_base_session` | ✅ live | — | `ack {ok, error?, running, transitioning}` |

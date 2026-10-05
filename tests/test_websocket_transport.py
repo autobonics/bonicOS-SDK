@@ -57,6 +57,19 @@ def _handler(ws) -> None:
             )
         elif msg["type"] == "drive":
             continue  # high-rate, no reply
+        elif msg["type"] == "health":
+            # A robot answers `health` with a message typed after the
+            # command, not an `ack` — only the id says it is the reply.
+            ws.send(
+                json.dumps(
+                    {
+                        "type": "health",
+                        "id": msg.get("id"),
+                        "cpu_percent": 12.5,
+                        "capabilities": {"docking": False},
+                    }
+                )
+            )
         else:
             ws.send(json.dumps({"type": "ack", "id": msg.get("id"), "ok": True}))
 
@@ -102,7 +115,7 @@ def test_handshake_telemetry_and_ack_over_a_real_socket(server) -> None:
         telemetry = transport.read_telemetry()
         assert telemetry["battery"]["soc"] == 88.0
 
-        cmd_id = transport.send({"type": "health"})
+        cmd_id = transport.send({"type": "list_maps"})
         ack = transport.wait_for_ack(cmd_id, timeout=5.0)
         assert ack["ok"] is True
         assert ack["id"] == cmd_id
@@ -120,11 +133,65 @@ def test_drive_omits_id_and_is_not_acked(server) -> None:
         # wait_for_update confirms the connection is still alive and
         # processing (the earlier auth-time battery push already settled
         # the update event, so this just proves nothing broke).
-        cmd_id = transport.send({"type": "health"})
+        cmd_id = transport.send({"type": "list_maps"})
         ack = transport.wait_for_ack(cmd_id, timeout=5.0)
         assert ack["ok"] is True
     finally:
         transport.close()
+
+
+def test_a_reply_is_matched_by_its_id_whatever_its_type(server) -> None:
+    """`health` is answered with `type: "health"`. The id is what makes it
+    the reply — waiting for an `ack` by type would time out on every robot."""
+    port = server.socket.getsockname()[1]
+    transport = WebSocketTransport("127.0.0.1", port=port)
+    try:
+        transport.connect(timeout=5.0)
+        cmd_id = transport.send({"type": "health"})
+        reply = transport.wait_for_ack(cmd_id, timeout=2.0)
+        assert reply["type"] == "health"
+        assert reply["id"] == cmd_id
+        assert reply["cpu_percent"] == 12.5
+    finally:
+        transport.close()
+
+
+def test_health_and_capabilities_return_through_the_robot_api(server) -> None:
+    import bonicos
+
+    port = server.socket.getsockname()[1]
+    transport = WebSocketTransport("127.0.0.1", port=port)
+    transport.connect(timeout=5.0)
+    bonicos.use_transport(transport)
+    try:
+        robot = bonicos.BonicBot()
+        assert robot.health()["cpu_percent"] == 12.5
+        assert robot.capabilities() == {"docking": False}
+    finally:
+        bonicos.use_transport(None)
+        transport.close()
+
+
+def test_a_message_with_an_id_nobody_is_waiting_on_is_not_a_reply() -> None:
+    """An event keeps being an event even if it happens to carry an `id`."""
+    tx = WebSocketTransport("127.0.0.1")
+    tx._dispatch({"type": "battery", "id": 7, "soc": 50.0})
+    assert tx.read_telemetry()["battery"]["soc"] == 50.0
+    assert 7 not in tx._acks
+
+    # The same message once command 7 has been sent is that command's reply.
+    with tx._acks_cv:
+        tx._awaiting.add(7)
+    tx._dispatch({"type": "battery", "id": 7, "soc": 60.0})
+    assert tx._acks[7]["soc"] == 60.0
+    assert tx.read_telemetry()["battery"]["soc"] == 50.0
+    assert 7 not in tx._awaiting
+
+
+def test_an_id_that_is_not_a_number_does_not_break_the_reader() -> None:
+    tx = WebSocketTransport("127.0.0.1")
+    tx._dispatch({"type": "battery", "id": ["x"], "soc": 40.0})
+    assert tx.read_telemetry()["battery"]["soc"] == 40.0
 
 
 def test_matching_robot_id_connects_normally(server) -> None:
