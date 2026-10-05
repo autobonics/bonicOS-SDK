@@ -347,7 +347,7 @@ def detect_gestures(frame: Any, max_hands: int = 1) -> List[Gesture]:
 
 
 def _persons_hand(label: str) -> str:
-    """MediaPipe labels handedness assuming a mirrored, selfie-style image, and
-    says to swap it otherwise. A robot's camera is not mirrored, so swap —
-    that makes ``hand`` the person's own right or left."""
-    return {"Left": "Right", "Right": "Left"}.get(label, label)
+    """MediaPipe's label for an image that is not mirrored, which a robot's
+    camera gives, is already the person's own right or left. Mirror the frame
+    and the label goes with it."""
+    return label

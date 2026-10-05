@@ -378,6 +378,11 @@ def test_gestures_without_mediapipe_say_why(monkeypatch: pytest.MonkeyPatch) -> 
         ai.detect_gestures(_frame())
 
 
+def test_the_hand_is_the_one_mediapipe_names() -> None:
+    assert _builtin._persons_hand("Left") == "Left"
+    assert _builtin._persons_hand("Right") == "Right"
+
+
 def test_frames_are_checked_before_any_model_runs() -> None:
     with pytest.raises(ValueError, match="height x width x 3"):
         ai.detect_markers(np.zeros((4, 4, 5), np.uint8))
