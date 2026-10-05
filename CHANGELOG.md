@@ -4,6 +4,14 @@ All notable changes to `bonicos`. This project follows
 [Semantic Versioning](https://semver.org/); while on `0.x`, breaking changes
 bump the minor version.
 
+## [1.1.1] — 2026-10-05
+
+### Fixed
+
+- **`ai.detect_gestures` names the right hand.** `Gesture.hand` was the
+  opposite of the hand shown: a left hand came back as `"Right"`, and a
+  right hand as `"Left"`.
+
 ## [1.1.0] — 2026-10-01
 
 ### Changed
