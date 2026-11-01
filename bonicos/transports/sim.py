@@ -1685,7 +1685,7 @@ class SimTransport(MockTransport):
             # program believe a visitor can talk to it.
             return {"ok": False,
                     "error": "the simulator has no agent to run — run_agent "
-                             "needs a robot with BonicOS"}
+                             "needs a robot with bonicOS-interface"}
         if cmd_type == protocol.CMD_STOP_AGENT:
             return {"ok": True}  # none is ever running
 

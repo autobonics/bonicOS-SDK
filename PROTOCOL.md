@@ -530,14 +530,14 @@ commands on the same connection are not kept waiting behind a sentence.
 | `stop_agent` | — | `ack {ok}` |
 
 `run_agent` opens the conversation with the robot's current agent (the one
-`use_agent` speaks as) on the robot's display, on top of whatever it shows.
+`use_agent` speaks as) on the bonicOS-interface display, on top of whatever it shows.
 Acked once the screen is opening, and when the agent is already running.
 Refused, with the reason, when no agent is loaded, another session or a call
-is using the display, the agent asks visitors to sign in, or the robot is out
+is using the bonicOS-interface display, the agent asks visitors to sign in, or the robot is out
 of credits for it.
 
 `stop_agent` ends the conversation — however it was started — as if the visitor
-had left it, and the display returns to what it showed before. Acked as well
+had left it, and the bonicOS-interface display returns to what it showed before. Acked as well
 when no agent is running.
 
 ### 5.7 System & session

@@ -4,6 +4,16 @@ All notable changes to `bonicos`. This project follows
 [Semantic Versioning](https://semver.org/); while on `0.x`, breaking changes
 bump the minor version.
 
+## [1.2.1] — 2026-11-01
+
+### Changed
+
+- The simulator's refusals name **bonicOS-interface**: *"cloud voices need
+  bonicOS-interface, which this robot doesn't have"*, and `run_agent()`
+  *"needs a robot with bonicOS-interface"*.
+- The documentation for `run_agent()` and `stop_agent()` says the agent opens
+  on the bonicOS-interface display.
+
 ## [1.2.0] — 2026-11-01
 
 ### Changed

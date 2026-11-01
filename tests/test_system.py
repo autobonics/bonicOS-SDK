@@ -204,9 +204,9 @@ def test_speak_forwards_use_agent(robot, transport) -> None:
 
 def test_speak_raises_the_robots_reason(robot, transport) -> None:
     transport.script_ack(protocol.CMD_SPEAK, {
-        "ok": False, "error": "cloud voices need BonicOS, which this robot "
+        "ok": False, "error": "cloud voices need bonicOS-interface, which this robot "
                               "doesn't have"})
-    with pytest.raises(CommandError, match="cloud voices need BonicOS"):
+    with pytest.raises(CommandError, match="cloud voices need bonicOS-interface"):
         robot.system.speak("hi", engine="cloud")
 
 

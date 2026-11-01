@@ -990,7 +990,7 @@ def test_shutdown_refuses_instead_of_acking_a_poweroff_that_cannot_happen(
 
 def test_run_agent_refuses_since_the_sim_has_no_agent(sim: SimTransport) -> None:
     ack = sim.wait_for_ack(sim.send({"type": protocol.CMD_RUN_AGENT}))
-    assert ack["ok"] is False and "BonicOS" in ack["error"]
+    assert ack["ok"] is False and "bonicOS-interface" in ack["error"]
 
 
 def test_stop_agent_acks_since_none_is_running(sim: SimTransport) -> None:

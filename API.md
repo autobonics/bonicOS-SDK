@@ -577,9 +577,10 @@ robot.speak("Welcome to the lab!", use_agent=True)         # bonicOS-interface: 
 
 On a robot with bonicOS-interface, `run_agent()` starts the robot's current agent — the
 same one `speak(..., use_agent=True)` speaks as. Its conversation screen opens
-on the robot's display, on top of whatever it was showing, and visitors can
-talk to it. `stop_agent()` ends the conversation as if the visitor had left
-it, and the display goes back to what it showed before.
+on the bonicOS-interface display, on top of whatever it was showing, and
+visitors can talk to it. `stop_agent()` ends the conversation as if the visitor
+had left it, and the bonicOS-interface display goes back to what it showed
+before.
 
 Both return once the robot has accepted them. `run_agent()` returns `True` as
 well when the agent is already running, and `stop_agent()` when none is. If the
@@ -588,7 +589,7 @@ agent can't start, `run_agent()` raises `CommandError` with the reason:
 - the robot has no agent loaded yet — just after bonicOS-interface starts, or right
   after the agent is changed; try again a moment later;
 - a marketing, training, teaching or attendance session, or a call, is using
-  the display;
+  the bonicOS-interface display;
 - the agent asks visitors to sign in, which needs someone at the robot;
 - the agent uses cloud AI and the robot is out of credits.
 

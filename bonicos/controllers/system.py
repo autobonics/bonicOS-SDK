@@ -214,13 +214,13 @@ class SystemController(ControllerBase):
         ``engine`` is ``"edge"`` — an on-device voice, free and offline, the
         default — or ``"cloud"``, a cloud voice that speaks many more
         languages and is paid for from the robot's credits (robots with
-        BonicOS only). ``voice`` names a cloud voice, such as ``"Zephyr"``, so
+        bonicOS-interface only). ``voice`` names a cloud voice, such as ``"Zephyr"``, so
         it needs ``engine="cloud"``; it speaks in ``language``.
 
         ``use_agent=True`` speaks in the voice of the agent the robot is
         running right now instead — its configured voice, language and speed
         — ignoring ``voice``, ``language``, ``rate`` and ``engine`` (robots
-        with BonicOS only).
+        with bonicOS-interface only).
 
         Returns ``True`` once the robot has finished speaking, or ``False``
         if it has not within ``timeout`` seconds — by default, long enough
@@ -231,7 +231,7 @@ class SystemController(ControllerBase):
 
         Raises :class:`~bonicos.CommandError` with the robot's reason if it
         can't be said — a language the voice doesn't speak, for example, a
-        cloud voice on a robot without BonicOS, or a speaker that dropped
+        cloud voice on a robot without bonicOS-interface, or a speaker that dropped
         out part-way. API.md §7 lists every supported language and voice.
         """
         payload: Dict[str, object] = {"type": protocol.CMD_SPEAK, "text": text}
@@ -291,15 +291,15 @@ class SystemController(ControllerBase):
 
     def run_agent(self) -> bool:
         """Start the robot's current agent: its conversation screen opens on
-        the robot's display, on top of whatever it shows, and visitors can
-        talk to it (robots with BonicOS only).
+        the bonicOS-interface display, on top of whatever it shows, and
+        visitors can talk to it (robots with bonicOS-interface only).
 
         The current agent is the one ``speak(use_agent=True)`` speaks as.
         Returns once the screen is opening; ``True`` as well when the agent
         is already running. Raises :class:`~bonicos.CommandError` with the
         robot's reason if it can't start — no agent loaded yet, the robot out
         of credits, an agent that asks visitors to sign in, or another session
-        or a call using the display.
+        or a call using the bonicOS-interface display.
         """
         self._command({"type": protocol.CMD_RUN_AGENT})
         return True
@@ -307,7 +307,7 @@ class SystemController(ControllerBase):
     def stop_agent(self) -> bool:
         """End the agent's conversation, as if the visitor had left it; the
         display goes back to what it showed before :meth:`run_agent`
-        (robots with BonicOS only). ``True`` as well when no agent is running.
+        (robots with bonicOS-interface only). ``True`` as well when no agent is running.
         """
         self._command({"type": protocol.CMD_STOP_AGENT})
         return True

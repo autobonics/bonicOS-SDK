@@ -127,8 +127,8 @@ SPEAK_RATE_RANGE = (0.5, 2.0)
 SPEAK_FINISHED = "finished"
 SPEAK_FAILED = "failed"
 
-#: The robot's agent (BonicOS only): open / end the conversation with it on
-#: the robot's display.
+#: The robot's agent (bonicOS-interface only): open / end the conversation
+#: with it on the bonicOS-interface display.
 CMD_RUN_AGENT = "run_agent"
 CMD_STOP_AGENT = "stop_agent"
 
