@@ -4,6 +4,18 @@ All notable changes to `bonicos`. This project follows
 [Semantic Versioning](https://semver.org/); while on `0.x`, breaking changes
 bump the minor version.
 
+## [1.2.0] — 2026-11-01
+
+### Changed
+
+- **`robot.capabilities()` names the screen fitted to the robot `interface`**
+  (it was `bonicos`): `{"servos", "gripper", "docking", "interface",
+  "zones"}`. The name is the same on every robot, whatever bonicOS version it
+  runs. A program that read `capabilities().get("bonicos")` reads
+  `capabilities().get("interface")` instead. The simulator reports it under
+  the same name.
+- The documentation calls the robot's screen app **bonicOS-interface**.
+
 ## [1.1.2] — 2026-10-05
 
 ### Fixed

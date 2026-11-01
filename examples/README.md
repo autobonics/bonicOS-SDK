@@ -18,7 +18,7 @@ Then open the script you want and edit the `HOST` constant near the top to
 point at your robot:
 
 ```python
-HOST = "192.168.29.54"  # robot/tablet IP — e.g. 172.20.10.2 for the Gazebo sim
+HOST = "192.168.29.54"  # robot/interface IP — e.g. 172.20.10.2 for the Gazebo sim
 ```
 
 On a LAN with more than one robot, pass `robot_id="M1_001"` to `BonicBot()`

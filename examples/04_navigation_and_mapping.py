@@ -29,7 +29,7 @@ This moves the robot when navigation is available. Set HOST below before running
 
 from bonicos import BonicBot, CommandError
 
-HOST = "192.168.29.54"  # robot/tablet IP — e.g. 172.20.10.2 for the Gazebo sim
+HOST = "192.168.29.54"  # robot/interface IP — e.g. 172.20.10.2 for the Gazebo sim
 
 
 def main() -> None:

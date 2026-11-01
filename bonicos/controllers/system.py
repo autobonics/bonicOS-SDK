@@ -37,9 +37,17 @@ class SystemController(ControllerBase):
 
         Information only. The SDK never checks it before sending a command;
         a robot that cannot do something still answers with an error. A key
-        the robot does not report is absent — empty when it reports none."""
+        the robot does not report is absent — empty when it reports none.
+
+        ``interface`` is reported under that name on every robot: a robot on
+        bonicOS 1.x names it ``bonicos``, which is read as ``interface``."""
         caps = self.health().get("capabilities")
-        return dict(caps) if isinstance(caps, dict) else {}
+        if not isinstance(caps, dict):
+            return {}
+        caps = dict(caps)
+        if "bonicos" in caps:
+            caps.setdefault("interface", caps.pop("bonicos"))
+        return caps
 
     # --- base session (the ROS stack under mapping/navigation) -------------
 

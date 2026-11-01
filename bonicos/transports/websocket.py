@@ -39,7 +39,7 @@ class WebSocketTransport:
     Connects to ``ws://<host>:<port>/ws`` (PROTOCOL.md §1), or
     ``ws://<host>:<port>/ws?robotId=<robot_id>`` when ``robot_id`` is given —
     the same URL shape regardless of which process hosts it
-    (`bonicOS-robot-app` on Pro, the Flutter tablet app on Lite).
+    (`bonicOS-robot-app` on Pro, bonicOS-interface on Lite).
 
     ``uds`` switches the same protocol onto a **unix domain socket** instead
     of TCP. That is what the on-robot ``run_code`` runner uses: its sandbox

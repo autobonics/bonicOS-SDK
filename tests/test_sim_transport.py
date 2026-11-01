@@ -959,7 +959,7 @@ def test_health_reports_capabilities_like_a_robot() -> None:
     sim = SimTransport(joints=["neckYaw", "leftElbow", "leftGripper", "rightGripper"])
     ack = sim.wait_for_ack(sim.send({"type": protocol.CMD_HEALTH}))
     caps = ack["capabilities"]
-    assert set(caps) == {"docking", "bonicos", "gripper", "zones", "servos"}
+    assert set(caps) == {"docking", "interface", "gripper", "zones", "servos"}
     assert caps["servos"] == ["rightGripper", "leftElbow", "leftGripper", "neckYaw"]
     assert caps["gripper"] is True
     no_grippers = SimTransport(joints=["neckYaw"])

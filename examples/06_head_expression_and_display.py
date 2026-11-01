@@ -15,7 +15,7 @@ are A series only. Two things worth knowing before you run this:
 
 from bonicos import BonicBot, CommandError, DisplayAnimation, HeadMode
 
-HOST = "192.168.29.54"  # robot/tablet IP — e.g. 172.20.10.2 for the Gazebo sim
+HOST = "192.168.29.54"  # robot/interface IP — e.g. 172.20.10.2 for the Gazebo sim
 
 
 def main() -> None:

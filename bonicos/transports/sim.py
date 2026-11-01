@@ -1619,7 +1619,7 @@ class SimTransport(MockTransport):
             return {"type": "health", "cpu_percent": 0.0, "ram_percent": 0.0,
                     "disk_percent": 0.0, "temps": {},
                     "capabilities": {
-                        "docking": False, "bonicos": False,
+                        "docking": False, "interface": False,
                         "gripper": {"rightGripper", "leftGripper"} <= set(self._fitted_servos),
                         "zones": False,
                         "servos": list(self._fitted_servos),

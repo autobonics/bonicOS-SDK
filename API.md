@@ -35,7 +35,7 @@ Wire details live in [PROTOCOL.md](./PROTOCOL.md).
 ```python
 from bonicos import BonicBot
 
-# Explicit host (developer laptop → robot on the LAN, or → tablet on lite models)
+# Explicit host (developer laptop → robot on the LAN, or → bonicOS-interface on lite models)
 robot = BonicBot("192.168.1.50")
 
 # Optional robot_id: a wrong-robot guard on a LAN with several robots, or
@@ -426,14 +426,14 @@ Grouped access: `robot.head.*`.
 
 ## 7. Speech & agent
 
-**On Lite:** ✅ available — BonicOS is always fitted.
+**On Lite:** ✅ available — bonicOS-interface is always fitted.
 
 | Method | Description |
 |---|---|
 | `robot.speak(text, voice=None, *, language=None, rate=None, engine=None, use_agent=False, wait=True, timeout=None) -> bool` | Say `text` (at most 1000 characters) and wait until the robot has finished saying it. `wait=False` returns as soon as the speech is queued — see [Waiting for speech](#waiting-for-speech). |
 | `robot.wait_for_speech(timeout=None) -> bool` | Block until the robot has said everything queued with `speak`. |
-| `robot.run_agent() -> bool` | Start the robot's current agent so visitors can talk to it. BonicOS only — see [The agent](#the-agent). |
-| `robot.stop_agent() -> bool` | End the agent's conversation. BonicOS only. |
+| `robot.run_agent() -> bool` | Start the robot's current agent so visitors can talk to it. bonicOS-interface only — see [The agent](#the-agent). |
+| `robot.stop_agent() -> bool` | End the agent's conversation. bonicOS-interface only. |
 
 Calls are spoken in order. If the robot can't say something it raises
 `CommandError` with the reason, so a program never goes quietly silent.
@@ -474,13 +474,13 @@ The robot decides, from how it is fitted — you never pick:
 
 | Robot | Who speaks | `engine="edge"` | `engine="cloud"` | `use_agent=True` |
 |---|---|---|---|---|
-| **With BonicOS** (the BonicOS app on the robot's tablet or phone) | the BonicOS app | ✅ the tablet's on-device voice | ✅ | ✅ |
-| **Without BonicOS** (an A-series pro without the app) | the robot itself, through its Bluetooth amplifier | ✅ English only | ❌ | ❌ |
+| **With bonicOS-interface** (the screen fitted to the robot) | bonicOS-interface | ✅ the interface's on-device voice | ✅ | ✅ |
+| **Without bonicOS-interface** (an A-series pro without it) | the robot itself, through its Bluetooth amplifier | ✅ English only | ❌ | ❌ |
 
-`engine="cloud"` and `use_agent=True` on a robot without BonicOS raise
-`CommandError`: *"cloud voices need BonicOS, which this robot doesn't have"*.
+`engine="cloud"` and `use_agent=True` on a robot without bonicOS-interface raise
+`CommandError`: *"cloud voices need bonicOS-interface, which this robot doesn't have"*.
 
-A robot without BonicOS speaks only through its Bluetooth amplifier, which it
+A robot without bonicOS-interface speaks only through its Bluetooth amplifier, which it
 connects by itself when it starts and reconnects whenever it is switched back
 on. While the amplifier is off or not yet connected, `speak` raises
 `CommandError` saying so rather than speaking to nobody. The amplifier is part
@@ -495,29 +495,29 @@ controller app.
 | `rate` | `0.5` to `2.0` | `1.0` | Speaking speed; higher is faster. Works with every engine. |
 | `engine` | `"edge"` or `"cloud"` | `"edge"` | `edge` is free and works offline. `cloud` is higher quality, speaks every language below, and uses the robot's credits. |
 | `voice` | a cloud voice name from the table below, e.g. `"Zephyr"` | `"Zephyr"` | Cloud only: needs `engine="cloud"`. Just the name — **not** `"en-US-Chirp3-HD-Zephyr"`; the language comes from `language`. On-device voices can't be chosen. |
-| `use_agent` | `True` or `False` | `False` | `True` speaks in the voice of the robot's current agent — its configured voice, language and speed. `voice`, `language`, `rate` and `engine` are then ignored. BonicOS only. |
+| `use_agent` | `True` or `False` | `False` | `True` speaks in the voice of the robot's current agent — its configured voice, language and speed. `voice`, `language`, `rate` and `engine` are then ignored. bonicOS-interface only. |
 
-**The current agent** is the one the robot is running in BonicOS right now —
+**The current agent** is the one the robot is running in bonicOS-interface right now —
 during a session, that session's agent; otherwise the agent chosen for the
 robot in BonicAI, whether it is the robot's own or one of your organisation's,
 or else the robot's default agent. Change it in BonicAI and the next
 `speak(..., use_agent=True)` uses the new voice. An agent with a cloud voice
-uses the robot's credits, like `engine="cloud"`. While BonicOS is still loading
+uses the robot's credits, like `engine="cloud"`. While bonicOS-interface is still loading
 an agent — just after it starts, or right after the agent is changed — `speak`
 raises `CommandError`; try again a moment later.
 
 ### Languages
 
-**Without BonicOS (the robot's own voice):** English only — `language="en-US"`,
+**Without bonicOS-interface (the robot's own voice):** English only — `language="en-US"`,
 or leave `language` out. Any other code raises `CommandError`.
 
-**With BonicOS, `engine="cloud"`:** every language below.
+**With bonicOS-interface, `engine="cloud"`:** every language below.
 
-**With BonicOS, `engine="edge"`:** the languages below that are installed on
-the tablet's on-device voice. English (`en-US`) is always installed. For any
-other language, add it once on the tablet: **Settings → Accessibility →
+**With bonicOS-interface, `engine="edge"`:** the languages below that are installed on
+the interface's on-device voice. English (`en-US`) is always installed. For any
+other language, add it once on the interface: **Settings → Accessibility →
 Text-to-speech output → Speech Services by Google (⚙) → Install voice data**
-(the exact path varies a little between tablets). Until then the robot raises
+(the exact path varies a little between devices). Until then the robot raises
 `CommandError` naming the missing language rather than speaking the wrong one.
 
 | Language | Code | Language | Code |
@@ -567,15 +567,15 @@ Russian). Pass just the name.
 ```python
 robot.speak("Hello!")                                    # default voice, any robot
 robot.speak("Slowly now.", rate=0.8)                     # any robot
-robot.speak("नमस्ते", language="hi-IN", engine="cloud")   # BonicOS: cloud, default voice
+robot.speak("नमस्ते", language="hi-IN", engine="cloud")   # bonicOS-interface: cloud, default voice
 robot.speak("നമസ്കാരം", "Puck", language="ml-IN", engine="cloud")
-robot.speak("வணக்கம்", language="ta-IN")                   # BonicOS: tablet voice, if Tamil is installed
-robot.speak("Welcome to the lab!", use_agent=True)         # BonicOS: the current agent's voice
+robot.speak("வணக்கம்", language="ta-IN")                   # bonicOS-interface: interface voice, if Tamil is installed
+robot.speak("Welcome to the lab!", use_agent=True)         # bonicOS-interface: the current agent's voice
 ```
 
 ### The agent
 
-On a robot with BonicOS, `run_agent()` starts the robot's current agent — the
+On a robot with bonicOS-interface, `run_agent()` starts the robot's current agent — the
 same one `speak(..., use_agent=True)` speaks as. Its conversation screen opens
 on the robot's display, on top of whatever it was showing, and visitors can
 talk to it. `stop_agent()` ends the conversation as if the visitor had left
@@ -585,15 +585,15 @@ Both return once the robot has accepted them. `run_agent()` returns `True` as
 well when the agent is already running, and `stop_agent()` when none is. If the
 agent can't start, `run_agent()` raises `CommandError` with the reason:
 
-- the robot has no agent loaded yet — just after BonicOS starts, or right
+- the robot has no agent loaded yet — just after bonicOS-interface starts, or right
   after the agent is changed; try again a moment later;
 - a marketing, training, teaching or attendance session, or a call, is using
   the display;
 - the agent asks visitors to sign in, which needs someone at the robot;
 - the agent uses cloud AI and the robot is out of credits.
 
-On a robot without BonicOS, and in the simulator, `run_agent()` raises
-`CommandError`; `stop_agent()` does too on a robot without BonicOS.
+On a robot without bonicOS-interface, and in the simulator, `run_agent()` raises
+`CommandError`; `stop_agent()` does too on a robot without bonicOS-interface.
 
 ```python
 robot.speak("Let me hand you over to my assistant.")
@@ -659,7 +659,7 @@ transparently on first use — you never have to think about how. Frames are
 transport and wherever your code runs. A multi-camera robot (e.g. the M1's
 face and docking cameras) exposes each by name.
 
-**On Lite:** ✅ available — but the camera is the **tablet's**, mounted on the
+**On Lite:** ✅ available — but the camera is the **interface's**, mounted on the
 robot's face: one camera, at face height, pointing forward. `robot.cameras`
 lists what a given robot actually has.
 
@@ -752,7 +752,7 @@ one trained against a different MobileNet build.
 ## 10. System
 
 **On Lite:** mixed. `health()` and `reconfig_wifi()` are ✅ available (the
-tablet answers them). The base-session methods and the
+interface answers them). The base-session methods and the
 grouped `system.get_base_session()` / `get_session_health()` are ❌ — there is
 no ROS stack to supervise, so the robot answers with an `error` explaining
 that. (This used to be described as gated on a `session_control` feature flag;
@@ -761,7 +761,7 @@ capability gating was removed — see PROTOCOL.md §3.1.)
 | Method | Description |
 |---|---|
 | `robot.health() -> dict` | `{"cpu_percent", "ram_percent", "disk_percent", "temps": {sensor: °C}}`, plus `runcode` where a code runner is wired up, and `capabilities` (below). **Not** container state — robot_app no longer updates itself, so the host owns that; `system.update_status()` answers it. |
-| `robot.capabilities() -> dict` | What this unit has, as the robot reports it: `{"servos": [...], "gripper": bool, "docking": bool, "bonicos": bool, "zones": bool}`. `servos` lists the servo names (`ServoID` values) the unit was built with — `None` if its build was never recorded; `gripper`, `docking` and `bonicos` are fitted addons; `zones` is whether the robot supports map zones. For information only: the SDK never checks it before sending a command. A key the robot does not report is absent (`{}` when it reports none), so read it with `.get()`. |
+| `robot.capabilities() -> dict` | What this unit has, as the robot reports it: `{"servos": [...], "gripper": bool, "docking": bool, "interface": bool, "zones": bool}`. `servos` lists the servo names (`ServoID` values) the unit was built with — `None` if its build was never recorded; `gripper`, `docking` and `interface` are fitted addons; `zones` is whether the robot supports map zones. For information only: the SDK never checks it before sending a command. A key the robot does not report is absent (`{}` when it reports none), so read it with `.get()`. |
 | `robot.restart_base_session(timeout=120.0) -> bool` | Recover a wedged robot: restart the ROS stack *underneath* mapping/navigation (drive, controllers, EKF, sensors, TF) — nav session down, base down, base up, nav session back. Refused while the robot is moving or running a nav goal — cancel/stop first. Slow (cold-start Gazebo alone is ~25s); the long default timeout reflects that, and a WebRTC video peer will drop partway through since the restart takes the camera topics with it. |
 | `robot.system.start_base_session(timeout=120.0) -> bool` | Bring the base stack up. A real robot does **not** start it on boot — powering on must not energise servos on its own — so this is how a freshly-booted robot is brought to life without SSH. |
 | `robot.system.stop_base_session(timeout=60.0) -> bool` | Take the base stack down; the robot can't move or perceive until it's restarted. Same guard as `restart_base_session` — refused while moving or running a goal. |

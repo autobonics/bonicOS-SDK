@@ -8,7 +8,7 @@ the one function that needs it so a plain install never pays for it.
 type/TXT record shape below (``_bonicos._tcp.local.``, a ``robotId`` TXT
 property) isn't pinned by any of the four `bonicOS-SDK` spec docs — it's
 this build's proposed convention for whatever advertises the service on the
-robot/tablet side.
+robot/interface side.
 """
 
 from __future__ import annotations

@@ -21,7 +21,7 @@ message shapes are transport-identical.
 
 - **Endpoint:** `ws://<host>:8080/ws`, optionally `ws://<host>:8080/ws?robotId=<ROBOT_ID>`
 - `<host>` is whoever runs the server for this model (README topology): the
-  processor (`robot_app`) on **pro**, the Flutter app on **lite**. The SDK does
+  processor (`robot_app`) on **pro**, bonicOS-interface on **lite**. The SDK does
   not distinguish them.
 - Reaching the WS handshake is the only mandatory gate — no authentication.
   The `robotId` query param is **optional**: omit it and any client on the
@@ -93,7 +93,7 @@ rules, enforced in each server's router rather than per handler:
    capability matrix.
 
 Today these strings are hardcoded per server, and each server knows only what
-its *whole class* of robot supports (`robot_app` ⇒ pro, the Flutter app ⇒ lite),
+its *whole class* of robot supports (`robot_app` ⇒ pro, bonicOS-interface ⇒ lite),
 so they cannot yet name a specific missing part on an individual robot.
 
 ---
@@ -119,10 +119,10 @@ forward-compat with v1 proximity auth).
 
 - **v0 (current): open.** No token verification; access is gated platform-side.
   The SDK still sends `token` if `BONICOS_TOKEN` is set.
-- An optional `role` names the client: `"bonicos"` for the BonicOS app,
+- An optional `role` names the client: `"interface"` for bonicOS-interface,
   `"controller"` for the controller app; absent or anything else is an SDK
-  client. It is an address, not a permission — `speak` on a robot with BonicOS
-  is delivered to the `bonicos` client (§5.6). The SDK sends no `role`.
+  client. It is an address, not a permission — `speak` on a robot with bonicOS-interface
+  is delivered to the `interface` client (§5.6). The SDK sends no `role`.
 - After `auth_result` the server **replays cached `map`/`costmap`** so a client
   joining mid-session renders immediately.
 - `protocol_version` — see §9.
@@ -164,7 +164,7 @@ addons. The robot reports what it was built with in the `health` reply's
 | Key | Meaning |
 |---|---|
 | `servos` | registry servo names this unit is built with; `null` if its build was never recorded |
-| `gripper`, `docking`, `bonicos` | addons fitted to this unit |
+| `gripper`, `docking`, `interface` | addons fitted to this unit (`interface` is bonicOS-interface) |
 | `zones` | the robot supports map zones |
 
 It is information for the person writing the program (`robot.capabilities()`).
@@ -490,14 +490,14 @@ choice.
 - `language` — a language code (`en-US`, `hi-IN`). Absent: English (`en-US`).
 - `rate` — 0.5–2.0, 1.0 normal, higher faster (`SPEAK_RATE_RANGE`).
 - `engine` — `"edge"` (default; an on-device voice) or `"cloud"` (a cloud
-  voice paid for from the robot's credits; robots with BonicOS only)
+  voice paid for from the robot's credits; robots with bonicOS-interface only)
   (`SPEAK_ENGINES`).
 - `voice` — a cloud voice name such as `"Zephyr"`, never a full provider voice
   id; it speaks in `language`. Refused unless `engine` is `"cloud"`.
-- `use_agent` — `true` speaks in the configured voice of the agent BonicOS is
+- `use_agent` — `true` speaks in the configured voice of the agent bonicOS-interface is
   talking as now (a running session's agent, else the robot's current agent,
   organisation or its own); `language`,
-  `voice`, `rate` and `engine` are then ignored. Robots with BonicOS only.
+  `voice`, `rate` and `engine` are then ignored. Robots with bonicOS-interface only.
   Default `false`; anything but a boolean is refused.
 
 API.md §7 lists every language code and voice name.
@@ -505,7 +505,7 @@ API.md §7 lists every language code and voice name.
 The ack comes once the speech is queued, not once it has been heard, and
 carries a `speak_id`. Speech is said in the order it was queued. Every refusal
 is `ok: false` with an `error` saying why — an invalid field, a language or
-voice the robot cannot speak, `cloud` or `use_agent` without BonicOS, BonicOS
+voice the robot cannot speak, `cloud` or `use_agent` without bonicOS-interface, bonicOS-interface
 not connected or its agent not yet loaded, no credits, or too much speech
 already waiting.
 
@@ -513,16 +513,16 @@ When the words have played out the robot sends
 `speak_status {speak_id, status, error?}` to the client that asked, and to no
 other. `status` is `"finished"`, or `"failed"` with an `error` saying why —
 the speaker dropping out part-way, a cloud voice that could not be reached,
-the BonicOS app disconnecting. One event per accepted `speak`; a refused
+bonicOS-interface disconnecting. One event per accepted `speak`; a refused
 `speak` gets none. The ack is never held until the speech ends, so other
 commands on the same connection are not kept waiting behind a sentence.
 
 | Robot | Spoken by |
 |---|---|
-| With BonicOS | the BonicOS app — its on-device voice (`edge`), a cloud voice (`cloud`) or the current agent's voice (`use_agent`) |
-| Without BonicOS (A-series pro) | the robot's own on-device voice, through its Bluetooth amplifier; English; no `cloud`, no `use_agent`. Refused while the amplifier is not connected |
+| With bonicOS-interface | bonicOS-interface — its on-device voice (`edge`), a cloud voice (`cloud`) or the current agent's voice (`use_agent`) |
+| Without bonicOS-interface (A-series pro) | the robot's own on-device voice, through its Bluetooth amplifier; English; no `cloud`, no `use_agent`. Refused while the amplifier is not connected |
 
-**The agent** — robots with BonicOS only; refused on any other.
+**The agent** — robots with bonicOS-interface only; refused on any other.
 
 | type | fields | reply |
 |---|---|---|

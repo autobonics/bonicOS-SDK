@@ -16,10 +16,16 @@ def test_health(robot, transport) -> None:
 
 
 def test_capabilities_is_the_health_block(robot, transport) -> None:
-    caps = {"docking": False, "bonicos": True, "gripper": True, "zones": False,
+    caps = {"docking": False, "interface": True, "gripper": True, "zones": False,
             "servos": ["leftElbow", "leftGripper"]}
     transport.script_ack(protocol.CMD_HEALTH, {"cpu_percent": 1.0, "capabilities": caps})
     assert robot.system.capabilities() == caps
+
+
+def test_capabilities_names_the_interface_the_same_on_every_robot(robot, transport) -> None:
+    # A bonicOS 1.x robot reports the interface as `bonicos`.
+    transport.script_ack(protocol.CMD_HEALTH, {"capabilities": {"bonicos": True, "gripper": False}})
+    assert robot.system.capabilities() == {"interface": True, "gripper": False}
 
 
 def test_capabilities_empty_when_the_robot_does_not_report_them(robot, transport) -> None:
